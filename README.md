@@ -96,6 +96,21 @@ Escuchando en: **`ws://127.0.0.1:8080`**
 
 ---
 
+## 🌐 Multijugador por Internet (Túnel Cloudflare)
+
+Para jugar con amigos o alumnos fuera de tu red local (a través de Internet en PCs, laptops o celulares con 4G):
+
+1. Con los servidores de Laravel (`serve`) y Reverb (`reverb:start`) corriendo, ejecutá:
+   ```bash
+   .\iniciar-tunel.bat
+   ```
+   *(O manualmente: `node tunnel-gateway.cjs` y en otra terminal `.\cloudflared.exe tunnel --url http://127.0.0.1:8090`)*
+
+2. Cloudflare te generará una URL pública segura HTTPS gratuita (ej: `https://xxx.trycloudflare.com`).
+3. Compartí ese enlace: los jugadores podrán conectarse directamente desde sus navegadores y teléfonos móviles con WebSockets SSL (`wss://`) sin configuración adicional ni problemas de Mixed Content.
+
+---
+
 ## 🎓 Accesos del Sistema
 
 | Módulo | Ruta | Descripción |
