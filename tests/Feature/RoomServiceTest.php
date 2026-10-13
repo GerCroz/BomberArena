@@ -77,4 +77,23 @@ class RoomServiceTest extends TestCase
         $this->assertIsArray($room->game_state);
         $this->assertCount(2, $room->game_state['players']);
     }
+
+    public function test_can_batch_actions_with_moves_and_bomb(): void
+    {
+        $room = $this->roomService->createRoom('p0', 'Host');
+        $this->roomService->joinRoom($room->code, 'p1', 'Challenger');
+        $this->roomService->startGame($room->code, 'p0');
+
+        $actions = [
+            ['type' => 'bomb', 'temp_id' => 'temp_opt_123'],
+            ['type' => 'move', 'direction' => 'right'],
+        ];
+
+        $res = $this->roomService->handleActions($room->code, 'p0', $actions);
+
+        $this->assertTrue($res['success']);
+        $this->assertNotEmpty($res['bombs']);
+        $this->assertEquals('temp_opt_123', $res['bombs'][0]['temp_id']);
+        $this->assertNotNull($res['pos']);
+    }
 }

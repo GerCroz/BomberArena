@@ -61,25 +61,33 @@
             align-items: center;
             justify-content: center;
             touch-action: none;
+            transition: aspect-ratio 0.2s ease, max-width 0.2s ease;
+        }
+        .canvas-container.is-portrait {
+            aspect-ratio: 11 / 13;
+            max-width: min(96vw, calc((100dvh - 250px) * 11 / 13));
+            max-height: calc(100dvh - 250px);
         }
         #game-canvas {
             width: 100%;
-            height: auto;
+            height: 100%;
             display: block;
-            aspect-ratio: 13 / 11;
+            aspect-ratio: inherit;
             object-fit: contain;
         }
 
         /* Ergonomic Cyberpunk Mobile Controls */
         .gamepad-container {
             width: 100%;
-            max-width: 650px;
+            max-width: 550px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 10px 14px;
-            margin-top: 6px;
+            padding: 8px 12px;
+            margin-top: 4px;
             touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
         }
 
         .dpad-cluster {
@@ -213,20 +221,25 @@
             </div>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1.5 sm:gap-2">
+            <!-- Orientation Toggle (Auto/Vertical/Horizontal) -->
+            <button type="button" id="btn-toggle-orientation" onclick="toggleOrientationMode()" class="px-2 sm:px-2.5 py-1 rounded-xl bg-slate-900 text-[11px] font-bold text-cyan-400 border border-slate-700 flex items-center gap-1 cursor-pointer hover:bg-slate-800" title="Rotar orientación de pantalla">
+                <i data-lucide="smartphone" id="orient-icon" class="w-3.5 h-3.5"></i>
+                <span id="orient-label" class="hidden sm:inline">HORIZONTAL</span>
+            </button>
             <!-- WebSocket Connection Status -->
-            <div class="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-900 border border-slate-700">
+            <div class="flex items-center gap-1.5 text-[11px] font-semibold px-2 sm:px-2.5 py-1 rounded-full bg-slate-900 border border-slate-700">
                 <span class="w-2 h-2 rounded-full bg-emerald-400" id="arena-ws-dot"></span>
                 <i data-lucide="wifi" class="w-3 h-3 text-emerald-400"></i>
-                <span id="arena-ws-status" class="hidden sm:inline text-slate-300">Reverb</span>
+                <span id="arena-ws-status" class="hidden md:inline text-slate-300">Reverb</span>
             </div>
             <!-- Haptic Vibration Toggle -->
-            <button type="button" id="btn-toggle-haptics" onclick="toggleHaptics()" class="px-2.5 py-1 rounded-xl bg-slate-900 text-[11px] font-bold text-cyan-300 border border-slate-700 flex items-center gap-1 cursor-pointer hover:bg-slate-800" title="Vibración Háptica">
+            <button type="button" id="btn-toggle-haptics" onclick="toggleHaptics()" class="px-2 sm:px-2.5 py-1 rounded-xl bg-slate-900 text-[11px] font-bold text-cyan-300 border border-slate-700 flex items-center gap-1 cursor-pointer hover:bg-slate-800" title="Vibración Háptica">
                 <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
                 <span id="haptic-label" class="hidden sm:inline">VIB ON</span>
             </button>
             <!-- Audio Mute Button -->
-            <button type="button" id="btn-toggle-audio" onclick="toggleAudio()" class="px-2.5 py-1 rounded-xl bg-slate-900 text-[11px] font-bold text-slate-300 hover:text-white border border-slate-700 flex items-center gap-1 cursor-pointer hover:bg-slate-800" title="Silenciar / Activar sonido">
+            <button type="button" id="btn-toggle-audio" onclick="toggleAudio()" class="px-2 sm:px-2.5 py-1 rounded-xl bg-slate-900 text-[11px] font-bold text-slate-300 hover:text-white border border-slate-700 flex items-center gap-1 cursor-pointer hover:bg-slate-800" title="Silenciar / Activar sonido">
                 <i data-lucide="volume-2" id="audio-icon" class="w-3.5 h-3.5 text-cyan-400"></i>
             </button>
         </div>
@@ -412,12 +425,64 @@
         let gameRenderer = null;
         let sfx = null;
 
+        let currentOrientationMode = 'auto'; // 'auto', 'portrait', 'landscape'
+
+        function applyOrientation(portrait) {
+            if (gameRenderer) {
+                gameRenderer.setPortrait(portrait);
+            }
+            const container = document.querySelector('.canvas-container');
+            const canvasEl = document.getElementById('game-canvas');
+            const orientIcon = document.getElementById('orient-icon');
+            const orientLabel = document.getElementById('orient-label');
+
+            if (container && canvasEl) {
+                if (portrait) {
+                    container.classList.add('is-portrait');
+                    if (orientLabel) orientLabel.innerText = 'VERTICAL';
+                    if (orientIcon) {
+                        orientIcon.className = 'w-3.5 h-3.5 rotate-90 text-cyan-400';
+                    }
+                } else {
+                    container.classList.remove('is-portrait');
+                    if (orientLabel) orientLabel.innerText = 'HORIZONTAL';
+                    if (orientIcon) {
+                        orientIcon.className = 'w-3.5 h-3.5 text-slate-400';
+                    }
+                }
+            }
+            if (window.lucide && window.lucide.createIcons) {
+                window.lucide.createIcons();
+            }
+        }
+
+        function checkAutoOrientation() {
+            if (currentOrientationMode !== 'auto') return;
+            // Screen width <= 800px and height > width indicates mobile vertical portrait
+            const isPortrait = window.innerWidth <= 800 && window.innerHeight > window.innerWidth;
+            applyOrientation(isPortrait);
+        }
+
+        function toggleOrientationMode() {
+            haptics.light();
+            const isCurrentPortrait = gameRenderer ? gameRenderer.portrait : false;
+            const nextPortrait = !isCurrentPortrait;
+            currentOrientationMode = nextPortrait ? 'portrait' : 'landscape';
+            applyOrientation(nextPortrait);
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             // Initialize Game Renderer & Audio Synthesizer
             if (window.BomberEngine) {
                 gameRenderer = new window.BomberEngine.GameRenderer(canvas);
                 sfx = new window.BomberEngine.SoundEngine();
             }
+
+            checkAutoOrientation();
+            window.addEventListener('resize', checkAutoOrientation);
+            window.addEventListener('orientationchange', () => {
+                setTimeout(checkAutoOrientation, 150);
+            });
 
             initEcho();
             updateLobbyView();
@@ -483,6 +548,7 @@
                     gameState = data.state;
                     currentRoom.status = 'playing';
                     remainingSeconds = data.duration || 180;
+                    if (gameRenderer) gameRenderer.invalidateBoard();
                     document.getElementById('screen-lobby').classList.add('hidden');
                     document.getElementById('screen-game').classList.remove('hidden');
                     document.getElementById('gameover-modal').classList.add('hidden');
@@ -510,10 +576,23 @@
                     }
                     break;
                 case 'bomb_placed':
-                    if (gameState) {
+                    if (gameState && data.bomb) {
+                        if (!gameState.bombs) gameState.bombs = {};
+                        // If placed by local player, remove optimistic placeholder
+                        if (data.bomb.owner_id === CURRENT_PLAYER_ID) {
+                            Object.keys(gameState.bombs).forEach(id => {
+                                if (gameState.bombs[id]._optimistic &&
+                                    gameState.bombs[id].x === data.bomb.x &&
+                                    gameState.bombs[id].y === data.bomb.y) {
+                                    delete gameState.bombs[id];
+                                }
+                            });
+                        }
                         data.bomb.local_planted_at = performance.now();
                         gameState.bombs[data.bomb.id] = data.bomb;
-                        if (sfx) sfx.playBombDrop();
+                        if (data.bomb.owner_id !== CURRENT_PLAYER_ID && sfx) {
+                            sfx.playBombDrop();
+                        }
                     }
                     break;
                 case 'bomb_exploded':
@@ -806,15 +885,71 @@
             return true;
         }
 
-        // Sequential FIFO queue for network move requests to guarantee strict ordering
-        let moveQueue = [];
-        let isSendingMove = false;
+        // Unified batched action pipeline for 0ms responsive gameplay
+        let pendingActionQueue = [];
+        let isFlushingActions = false;
+
+        function enqueueAction(action) {
+            pendingActionQueue.push(action);
+            flushActions();
+        }
+
+        async function flushActions() {
+            if (isFlushingActions || pendingActionQueue.length === 0) return;
+            isFlushingActions = true;
+
+            const batch = pendingActionQueue.splice(0, 40);
+
+            try {
+                const res = await fetch(`/api/rooms/${ROOM_CODE}/actions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
+                    body: JSON.stringify({ actions: batch })
+                });
+                const data = await res.json();
+                if (data && data.success) {
+                    if (data.bombs && data.bombs.length > 0 && gameState && gameState.bombs) {
+                        data.bombs.forEach(b => {
+                            if (b.temp_id && gameState.bombs[b.temp_id]) {
+                                delete gameState.bombs[b.temp_id];
+                            }
+                            b.local_planted_at = performance.now();
+                            gameState.bombs[b.id] = b;
+                        });
+                    }
+                    // Authoritative position reconciliation: only once pending input queue is fully drained
+                    if (data.pos && pendingActionQueue.length === 0 && gameState && gameState.players) {
+                        const me = gameState.players[CURRENT_PLAYER_ID];
+                        if (me && me.alive) {
+                            me.x = data.pos.x;
+                            me.y = data.pos.y;
+                        }
+                    }
+                } else if (data && !data.success && data.pos && pendingActionQueue.length === 0 && gameState && gameState.players) {
+                    const me = gameState.players[CURRENT_PLAYER_ID];
+                    if (me && me.alive) {
+                        me.x = data.pos.x;
+                        me.y = data.pos.y;
+                    }
+                }
+            } catch (err) {
+                console.warn('Network action dispatch:', err);
+            } finally {
+                isFlushingActions = false;
+                if (pendingActionQueue.length > 0) {
+                    flushActions();
+                }
+            }
+        }
 
         // Client-side prediction for instantaneous 0ms response
-        function predictAndMove(direction) {
+        function predictAndMove(inputDir) {
             if (!gameState || !gameState.players || currentRoom.status !== 'playing') return;
             const me = gameState.players[CURRENT_PLAYER_ID];
             if (!me || !me.alive) return;
+
+            // Map visual screen direction (e.g. from vertical touch D-Pad) to logical grid direction
+            const direction = gameRenderer ? gameRenderer.screenToLogicalDir(inputDir) : inputDir;
 
             let dx = 0, dy = 0;
             if (direction === 'up') dy = -1;
@@ -827,7 +962,7 @@
 
             // Turn player face towards direction
             me.direction = direction;
-            me.isMoving = true;
+            me._movedAt = performance.now();
 
             if (canMoveTo(nextX, nextY)) {
                 // Instantly update on local screen (0ms latency!)
@@ -842,8 +977,8 @@
                     haptics.heavy();
                 }
 
-                // Send authoritative command to server in strict order
-                sendMove(direction);
+                // Send authoritative command to server in batched queue
+                enqueueAction({ type: 'move', direction: direction });
             }
         }
 
@@ -894,7 +1029,6 @@
                     e.preventDefault();
                     e.stopPropagation();
                     bombBtn.classList.add('is-active');
-                    haptics.heavy();
                     sendBomb();
                 };
                 const releaseBomb = (e) => {
@@ -911,64 +1045,59 @@
             }
         }
 
-        // Enqueue movement to send to server sequentially (strict FIFO)
-        function sendMove(direction) {
-            moveQueue.push(direction);
-            processMoveQueue();
-        }
-
-        async function processMoveQueue() {
-            if (isSendingMove || moveQueue.length === 0) return;
-            isSendingMove = true;
-            const dir = moveQueue.shift();
-
-            try {
-                const res = await fetch(`/api/rooms/${ROOM_CODE}/move`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
-                    body: JSON.stringify({ direction: dir })
-                });
-                const data = await res.json();
-                // Only reconcile if the server rejected the move and no further moves are in queue
-                if (data && !data.success && data.pos && moveQueue.length === 0) {
-                    const me = gameState.players[CURRENT_PLAYER_ID];
-                    if (me) {
-                        me.x = data.pos.x;
-                        me.y = data.pos.y;
-                    }
-                }
-            } catch (err) {
-                // Ignore transient network errors
-            } finally {
-                isSendingMove = false;
-                if (moveQueue.length > 0) {
-                    processMoveQueue();
-                }
-            }
-        }
-
-        async function sendBomb() {
+        function sendBomb() {
             if (!gameState || !gameState.players || currentRoom.status !== 'playing') return;
             const me = gameState.players[CURRENT_PLAYER_ID];
             if (!me || !me.alive) return;
 
+            // Check active bomb count limit locally
+            let activeBombs = 0;
+            if (gameState.bombs) {
+                for (const b of Object.values(gameState.bombs)) {
+                    if (b.owner_id === CURRENT_PLAYER_ID) activeBombs++;
+                }
+            }
+            const maxAllowed = me.max_bombs || 1;
+            if (activeBombs >= maxAllowed) {
+                haptics.light();
+                return;
+            }
+
+            // Check if there is already a bomb on player's current tile
+            if (gameState.bombs) {
+                for (const b of Object.values(gameState.bombs)) {
+                    if (b.x === me.x && b.y === me.y) {
+                        return;
+                    }
+                }
+            }
+
+            // Squash recoil visual effect
             me.isPlacingBomb = true;
             setTimeout(() => { me.isPlacingBomb = false; }, 180);
 
-            try {
-                const res = await fetch(`/api/rooms/${ROOM_CODE}/bomb`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN }
-                });
-                const data = await res.json();
-                if (data && data.success && data.bomb) {
-                    data.bomb.local_planted_at = performance.now();
-                    gameState.bombs[data.bomb.id] = data.bomb;
-                    if (sfx) sfx.playBombDrop();
-                }
-            } catch (err) {
-                console.error(err);
-            }
+            // Instant 0ms optimistic bomb placement!
+            const tempId = 'opt_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+            const tempBomb = {
+                id: tempId,
+                x: me.x,
+                y: me.y,
+                owner_id: CURRENT_PLAYER_ID,
+                range: me.bomb_range || 2,
+                planted_at: Date.now() / 1000,
+                explodes_at: (Date.now() / 1000) + 2.0,
+                local_planted_at: performance.now(),
+                _optimistic: true
+            };
+
+            if (!gameState.bombs) gameState.bombs = {};
+            gameState.bombs[tempId] = tempBomb;
+
+            if (sfx) sfx.playBombDrop();
+            haptics.heavy();
+
+            // Enqueue bomb action in batch pipeline
+            enqueueAction({ type: 'bomb', temp_id: tempId });
         }
 
         // Active bomb detonation checker running on client loop
@@ -985,23 +1114,25 @@
                 const amOwner = b.owner_id === CURRENT_PLAYER_ID;
 
                 // Explode after 2.0 seconds:
-                // 1. Owner triggers at >= 2000ms
-                // 2. Host fallback at >= 2200ms
-                // 3. Emergency fallback at >= 2500ms
-                const shouldTrigger = (amOwner && elapsed >= 2000) ||
-                                      (isHost && elapsed >= 2200) ||
-                                      (elapsed >= 2500);
+                // 1. Owner triggers at >= 1950ms
+                // 2. Host fallback at >= 2150ms
+                // 3. Emergency fallback at >= 2400ms
+                const shouldTrigger = (amOwner && elapsed >= 1950) ||
+                                      (isHost && elapsed >= 2150) ||
+                                      (elapsed >= 2400);
 
                 if (shouldTrigger && !b._triggering) {
                     b._triggering = true;
-                    triggerDetonation(b.id).finally(() => {
-                        // Allow retry if bomb is still present after 500ms
-                        setTimeout(() => {
-                            if (gameState.bombs && gameState.bombs[b.id]) {
-                                b._triggering = false;
-                            }
-                        }, 500);
-                    });
+                    // Detonation call only for authoritative server bomb ID
+                    if (!b._optimistic) {
+                        triggerDetonation(b.id).finally(() => {
+                            setTimeout(() => {
+                                if (gameState.bombs && gameState.bombs[b.id]) {
+                                    b._triggering = false;
+                                }
+                            }, 400);
+                        });
+                    }
                 }
             });
         }

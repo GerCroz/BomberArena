@@ -163,6 +163,24 @@ class BomberGameController extends Controller
     }
 
     /**
+     * API: Ordered batch of player actions (moves + bombs) in a single request.
+     */
+    public function actions(Request $request, string $code): JsonResponse
+    {
+        $validated = $request->validate([
+            'actions' => ['required', 'array', 'min:1', 'max:40'],
+            'actions.*.type' => ['required', 'string', 'in:move,bomb'],
+            'actions.*.direction' => ['nullable', 'string', 'in:up,down,left,right'],
+            'actions.*.temp_id' => ['nullable', 'string'],
+        ]);
+
+        $playerId = $this->identity->getOrCreatePlayerId($request);
+        $result = $this->roomService->handleActions($code, $playerId, $validated['actions']);
+
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
+    /**
      * API: Trigger Detonate.
      */
     public function detonate(Request $request, string $code): JsonResponse

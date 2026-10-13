@@ -5,7 +5,9 @@ namespace App\Services;
 use App\Models\Room;
 use App\Models\RoomPlayer;
 use App\Events\GameRoomEvent;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class RoomService
@@ -227,192 +229,224 @@ class RoomService
     }
 
     /**
-     * Handle player move command with ultra-fast in-memory state.
+     * Cache key holding the live, authoritative match state.
+     */
+    protected function stateKey(string $code): string
+    {
+        return "arena_state_{$code}";
+    }
+
+    /**
+     * Run a state mutation atomically under a per-room lock.
+     *
+     * Without this lock, concurrent requests (moves, bombs, detonations from
+     * several players) read the same snapshot and the last writer silently
+     * erased the others' changes — the root cause of "bombs that never appear".
+     *
+     * The callback receives the state by reference plus an events collector.
+     * Broadcasts and telemetry are dispatched AFTER the lock is released so
+     * network I/O never blocks other players.
+     */
+    protected function mutateState(string $code, callable $mutation): array
+    {
+        $cleanCode = strtoupper($code);
+        $lock = Cache::lock("arena_lock_{$cleanCode}", 5);
+
+        try {
+            $lock->block(3);
+        } catch (LockTimeoutException $e) {
+            return ['success' => false, 'error' => 'Servidor ocupado, reintenta'];
+        }
+
+        $events = [];
+        $telemetry = [];
+
+        try {
+            $state = Cache::get($this->stateKey($cleanCode));
+
+            if (!$state) {
+                $room = Room::where('code', $cleanCode)->first();
+                if (!$room || $room->status !== 'playing' || !$room->game_state) {
+                    return ['success' => false, 'error' => 'Partida no activa'];
+                }
+                $state = $room->game_state;
+            }
+
+            if (!empty($state['is_game_over'])) {
+                return ['success' => false, 'error' => 'Partida finalizada'];
+            }
+
+            $result = $mutation($state, $events, $telemetry);
+
+            // Resolve any bomb whose authoritative server fuse has elapsed
+            foreach ($this->engine->checkAndDetonateExpiredBombs($state) as $detRes) {
+                $events[] = ['bomb_exploded', $detRes];
+            }
+
+            Cache::put($this->stateKey($cleanCode), $state, 1800);
+        } finally {
+            $lock->release();
+        }
+
+        // Persist final result only once, when the match ends
+        if (!empty($state['is_game_over'])) {
+            Room::where('code', $cleanCode)->update([
+                'status' => 'finished',
+                'winner_player_id' => $state['winner_id'],
+                'finished_at' => now(),
+                'game_state' => json_encode($state),
+                'last_activity_at' => now(),
+            ]);
+            $events[] = ['game_over', [
+                'winner_id' => $state['winner_id'],
+                'players' => $state['players'],
+            ]];
+        }
+
+        foreach ($events as [$type, $data]) {
+            broadcast(new GameRoomEvent($cleanCode, $type, $data));
+        }
+
+        foreach ($telemetry as [$name, $source, $payload]) {
+            $this->telemetry->recordEvent($cleanCode, $name, $source, "arena.{$cleanCode}", $payload);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Process an ordered batch of player actions (moves and bombs) atomically.
+     *
+     * The client accumulates inputs while a request is in flight and sends them
+     * together, so network latency never piles up a backlog of requests and a
+     * bomb is always planted on the exact tile the player was standing on.
+     */
+    public function handleActions(string $code, string $playerId, array $actions): array
+    {
+        return $this->mutateState($code, function (array &$state, array &$events, array &$telemetry) use ($playerId, $actions) {
+            if (!isset($state['players'][$playerId])) {
+                return ['success' => false, 'error' => 'Jugador no encontrado'];
+            }
+
+            $moved = false;
+            $lastDirection = null;
+            $collected = [];
+            $bombs = [];
+            $rejected = 0;
+
+            foreach (array_slice($actions, 0, 40) as $action) {
+                $type = $action['type'] ?? null;
+
+                if ($type === 'move') {
+                    $res = $this->engine->handleMove($state, $playerId, (string) ($action['direction'] ?? ''));
+                    if ($res['success']) {
+                        $moved = true;
+                        $lastDirection = $action['direction'];
+                        if ($res['collected_powerup']) {
+                            $collected[] = "{$res['pos']['x']}_{$res['pos']['y']}";
+                        }
+                    } else {
+                        $rejected++;
+                    }
+                } elseif ($type === 'bomb') {
+                    $res = $this->engine->handlePlaceBomb($state, $playerId);
+                    if ($res['success']) {
+                        $bombData = $res['bomb'];
+                        if (!empty($action['temp_id'])) {
+                            $bombData['temp_id'] = $action['temp_id'];
+                        }
+                        $bombs[] = $bombData;
+                    } else {
+                        $rejected++;
+                    }
+                }
+            }
+
+            $player = $state['players'][$playerId];
+
+            if ($moved) {
+                $events[] = ['player_moved', [
+                    'player_id' => $playerId,
+                    'x' => $player['x'],
+                    'y' => $player['y'],
+                    'direction' => $lastDirection,
+                    'collected_powerup' => !empty($collected),
+                    'collected_keys' => $collected,
+                    'stats' => $player,
+                ]];
+            }
+
+            foreach ($bombs as $bomb) {
+                $events[] = ['bomb_placed', ['bomb' => $bomb]];
+                $telemetry[] = ['bomb_placed', $playerId, ['bomb' => $bomb]];
+            }
+
+            return [
+                'success' => true,
+                'pos' => ['x' => $player['x'], 'y' => $player['y']],
+                'alive' => $player['alive'],
+                'bombs' => $bombs,
+                'rejected' => $rejected,
+            ];
+        });
+    }
+
+    /**
+     * Handle a single player move (kept for API compatibility).
      */
     public function handleMove(string $code, string $playerId, string $direction): array
     {
-        $cleanCode = strtoupper($code);
-        $state = \Illuminate\Support\Facades\Cache::get("arena_state_{$cleanCode}");
-
-        if (!$state) {
-            $room = Room::where('code', $cleanCode)->first();
-            if (!$room || $room->status !== 'playing') {
-                return ['success' => false, 'error' => 'Partida no activa'];
-            }
-            $state = $room->game_state;
+        $result = $this->handleActions($code, $playerId, [['type' => 'move', 'direction' => $direction]]);
+        if (($result['success'] ?? false) && ($result['rejected'] ?? 0) > 0) {
+            return ['success' => false, 'error' => 'Movimiento bloqueado', 'pos' => $result['pos']];
         }
-
-        if (!$state) {
-            return ['success' => false, 'error' => 'Estado no inicializado'];
-        }
-
-        $result = $this->engine->handleMove($state, $playerId, $direction);
-        if (!$result['success']) {
-            return $result;
-        }
-
-        // Check and auto-detonate any bombs that hit their 2s timer
-        $autoDetonations = $this->engine->checkAndDetonateExpiredBombs($state);
-        foreach ($autoDetonations as $detRes) {
-            broadcast(new GameRoomEvent($cleanCode, 'bomb_exploded', $detRes));
-            if ($detRes['is_game_over']) {
-                broadcast(new GameRoomEvent($cleanCode, 'game_over', [
-                    'winner_id' => $detRes['winner_id'],
-                    'players' => $state['players'],
-                ]));
-            }
-        }
-
-        // Cache update is instantaneous (sub-millisecond)
-        \Illuminate\Support\Facades\Cache::put("arena_state_{$cleanCode}", $state, 600);
-
-        // Broadcast player moved to other players
-        broadcast(new GameRoomEvent($cleanCode, 'player_moved', [
-            'player_id' => $playerId,
-            'x' => $result['pos']['x'],
-            'y' => $result['pos']['y'],
-            'direction' => $direction,
-            'collected_powerup' => $result['collected_powerup'],
-            'stats' => $result['player'],
-        ]));
-
         return $result;
     }
 
     /**
-     * Handle place bomb command.
+     * Handle a single bomb placement (kept for API compatibility).
      */
     public function placeBomb(string $code, string $playerId): array
     {
-        $cleanCode = strtoupper($code);
-        $state = \Illuminate\Support\Facades\Cache::get("arena_state_{$cleanCode}");
-
-        $room = Room::where('code', $cleanCode)->first();
-        if (!$room || $room->status !== 'playing') {
-            return ['success' => false, 'error' => 'Partida no activa'];
+        $result = $this->handleActions($code, $playerId, [['type' => 'bomb']]);
+        if (($result['success'] ?? false) && empty($result['bombs'])) {
+            return ['success' => false, 'error' => 'No se pudo colocar la bomba'];
         }
-
-        if (!$state) {
-            $state = $room->game_state;
-        }
-
-        if (!$state) {
-            return ['success' => false, 'error' => 'Estado no inicializado'];
-        }
-
-        $result = $this->engine->handlePlaceBomb($state, $playerId);
-        if (!$result['success']) {
-            return $result;
-        }
-
-        // Check for any expired bombs while placing
-        $autoDetonations = $this->engine->checkAndDetonateExpiredBombs($state);
-        foreach ($autoDetonations as $detRes) {
-            broadcast(new GameRoomEvent($cleanCode, 'bomb_exploded', $detRes));
-            if ($detRes['is_game_over']) {
-                broadcast(new GameRoomEvent($cleanCode, 'game_over', [
-                    'winner_id' => $detRes['winner_id'],
-                    'players' => $state['players'],
-                ]));
-            }
-        }
-
-        \Illuminate\Support\Facades\Cache::put("arena_state_{$cleanCode}", $state, 600);
-
-        broadcast(new GameRoomEvent($cleanCode, 'bomb_placed', [
-            'bomb' => $result['bomb'],
-        ]));
-
-        $this->telemetry->recordEvent(
-            $cleanCode,
-            'bomb_placed',
-            $playerId,
-            "arena.{$cleanCode}",
-            ['bomb' => $result['bomb']]
-        );
-
-        return $result;
+        return ($result['success'] ?? false)
+            ? ['success' => true, 'bomb' => $result['bombs'][0]]
+            : $result;
     }
 
     /**
-     * Detonate bomb and broadcast effects, eliminations and game over.
+     * Detonate a bomb whose fuse has elapsed according to the SERVER clock.
+     * Clients only "ping" this endpoint; early requests are ignored.
      */
     public function detonateBomb(string $code, string $bombId): array
     {
-        $cleanCode = strtoupper($code);
-        $state = \Illuminate\Support\Facades\Cache::get("arena_state_{$cleanCode}");
-
-        if (!$state) {
-            $room = Room::where('code', $cleanCode)->first();
-            if (!$room || $room->status !== 'playing') {
-                return ['success' => false, 'error' => 'Partida no activa'];
+        return $this->mutateState($code, function (array &$state, array &$events, array &$telemetry) use ($bombId) {
+            if (!isset($state['bombs'][$bombId])) {
+                return ['success' => true, 'already_exploded' => true];
             }
-            $state = $room->game_state;
-        }
 
-        if (!$state) {
-            return ['success' => false, 'error' => 'Estado no inicializado'];
-        }
+            // Server is authoritative: allow 350ms tolerance for clock jitter
+            if (microtime(true) + 0.35 < $state['bombs'][$bombId]['explodes_at']) {
+                return ['success' => true, 'pending' => true];
+            }
 
-        // If bomb was already exploded by timer or chain reaction, return cleanly
-        if (!isset($state['bombs'][$bombId])) {
-            return ['success' => true, 'already_exploded' => true];
-        }
+            $result = $this->engine->detonateBomb($state, $bombId);
+            if ($result['success']) {
+                $events[] = ['bomb_exploded', $result];
+                $telemetry[] = ['bomb_exploded', 'Engine', [
+                    'bomb_id' => $bombId,
+                    'tiles' => count($result['explosion_tiles']),
+                    'destroyed_blocks' => count($result['destroyed_blocks']),
+                    'eliminated' => count($result['eliminated_players']),
+                    'game_over' => $result['is_game_over'],
+                ]];
+            }
 
-        $result = $this->engine->detonateBomb($state, $bombId);
-        if (!$result['success']) {
             return $result;
-        }
-
-        // Also detonate any other expired bombs
-        $autoDetonations = $this->engine->checkAndDetonateExpiredBombs($state);
-
-        \Illuminate\Support\Facades\Cache::put("arena_state_{$cleanCode}", $state, 600);
-
-        if ($result['is_game_over']) {
-            $room = Room::where('code', $cleanCode)->first();
-            if ($room) {
-                $room->status = 'finished';
-                $room->winner_player_id = $result['winner_id'];
-                $room->finished_at = now();
-                $room->game_state = $state;
-                $room->last_activity_at = now();
-                $room->save();
-            }
-        }
-
-        broadcast(new GameRoomEvent($cleanCode, 'bomb_exploded', $result));
-
-        foreach ($autoDetonations as $detRes) {
-            broadcast(new GameRoomEvent($cleanCode, 'bomb_exploded', $detRes));
-            if ($detRes['is_game_over']) {
-                $result['is_game_over'] = true;
-                $result['winner_id'] = $detRes['winner_id'];
-            }
-        }
-
-        if ($result['is_game_over']) {
-            broadcast(new GameRoomEvent($cleanCode, 'game_over', [
-                'winner_id' => $result['winner_id'],
-                'players' => $state['players'],
-            ]));
-        }
-
-        $this->telemetry->recordEvent(
-            $cleanCode,
-            'bomb_exploded',
-            'Engine',
-            "arena.{$cleanCode}",
-            [
-                'bomb_id' => $bombId,
-                'tiles' => count($result['explosion_tiles']),
-                'destroyed_blocks' => count($result['destroyed_blocks']),
-                'eliminated' => count($result['eliminated_players']),
-                'game_over' => $result['is_game_over'],
-            ]
-        );
-
-        return $result;
+        });
     }
 
     /**
@@ -434,6 +468,7 @@ class RoomService
 
         $newSeed = mt_rand(10000, 99999);
         $initialState = $this->engine->createInitialState($records, $newSeed);
+        Cache::put($this->stateKey($room->code), $initialState, 1800);
 
         $room->update([
             'status' => 'playing',
