@@ -111,6 +111,7 @@ class BomberGameController extends Controller
             'room' => $room,
             'players' => $room->players,
             'game_state' => $activeState,
+            'server_time' => microtime(true),
         ]);
     }
 
@@ -176,6 +177,16 @@ class BomberGameController extends Controller
 
         $playerId = $this->identity->getOrCreatePlayerId($request);
         $result = $this->roomService->handleActions($code, $playerId, $validated['actions']);
+
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
+    /**
+     * API: Advance server room simulation tick.
+     */
+    public function tick(Request $request, string $code): JsonResponse
+    {
+        $result = $this->roomService->tickRoom($code);
 
         return response()->json($result, $result['success'] ? 200 : 422);
     }

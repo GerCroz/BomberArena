@@ -154,4 +154,105 @@ class BomberGameEngineTest extends TestCase
         $this->assertTrue($detRes['success']);
         $this->assertEmpty($state['bombs'], 'Both bombs should have exploded');
     }
+
+    public function test_living_players_collide_and_cannot_occupy_same_tile(): void
+    {
+        $players = [
+            ['player_id' => 'p1', 'nickname' => 'Alice', 'slot_index' => 0],
+            ['player_id' => 'p2', 'nickname' => 'Bob', 'slot_index' => 1],
+        ];
+
+        $state = $this->engine->createInitialState($players, 42424);
+        // p1 is at (1, 1). Move p2 to adjacent tile (2, 1)
+        $state['players']['p2']['x'] = 2;
+        $state['players']['p2']['y'] = 1;
+
+        // p1 attempts to move right into p2's tile
+        $res = $this->engine->handleMove($state, 'p1', 'right');
+
+        $this->assertFalse($res['success']);
+        $this->assertStringContainsString('ocupada por otro jugador', $res['error']);
+        $this->assertEquals(1, $state['players']['p1']['x']);
+        $this->assertEquals(1, $state['players']['p1']['y']);
+    }
+
+    public function test_dead_player_does_not_block_living_players(): void
+    {
+        $players = [
+            ['player_id' => 'p1', 'nickname' => 'Alice', 'slot_index' => 0],
+            ['player_id' => 'p2', 'nickname' => 'Bob', 'slot_index' => 1],
+        ];
+
+        $state = $this->engine->createInitialState($players, 42424);
+        // Place dead p2 at (2, 1)
+        $state['players']['p2']['x'] = 2;
+        $state['players']['p2']['y'] = 1;
+        $state['players']['p2']['alive'] = false;
+
+        // p1 should freely walk through the dead player's position
+        $res = $this->engine->handleMove($state, 'p1', 'right');
+
+        $this->assertTrue($res['success']);
+        $this->assertEquals(2, $state['players']['p1']['x']);
+        $this->assertEquals(1, $state['players']['p1']['y']);
+    }
+
+    public function test_multiple_bombs_with_independent_timers_and_same_tick_detonation(): void
+    {
+        $players = [
+            ['player_id' => 'p1', 'nickname' => 'Alice', 'slot_index' => 0],
+            ['player_id' => 'p2', 'nickname' => 'Bob', 'slot_index' => 1],
+        ];
+
+        $state = $this->engine->createInitialState($players, 42424);
+        $now = microtime(true);
+
+        // Bomb 1 at (1, 1) - expired
+        $state['bombs']['b1'] = [
+            'id' => 'b1', 'x' => 1, 'y' => 1, 'owner_id' => 'p1',
+            'range' => 1, 'planted_at' => $now - 3, 'explodes_at' => $now - 1, 'state' => 'active'
+        ];
+
+        // Bomb 2 at (10, 8) - still active, not expired
+        $state['bombs']['b2'] = [
+            'id' => 'b2', 'x' => 10, 'y' => 8, 'owner_id' => 'p2',
+            'range' => 1, 'planted_at' => $now, 'explodes_at' => $now + 5, 'state' => 'active'
+        ];
+
+        $results = $this->engine->checkAndDetonateExpiredBombs($state);
+
+        $this->assertCount(1, $results);
+        $this->assertEquals('b1', $results[0]['root_bomb_id']);
+        $this->assertArrayNotHasKey('b1', $state['bombs']);
+        $this->assertArrayHasKey('b2', $state['bombs']);
+        $this->assertEquals('active', $state['bombs']['b2']['state']);
+    }
+
+    public function test_chain_reaction_marks_detonated_and_prevents_duplicate(): void
+    {
+        $players = [
+            ['player_id' => 'p1', 'nickname' => 'Alice', 'slot_index' => 0],
+        ];
+
+        $state = $this->engine->createInitialState($players, 42424);
+        $now = microtime(true);
+
+        $state['bombs']['b1'] = [
+            'id' => 'b1', 'x' => 1, 'y' => 1, 'owner_id' => 'p1',
+            'range' => 2, 'planted_at' => $now, 'explodes_at' => $now + 2, 'state' => 'active'
+        ];
+        $state['bombs']['b2'] = [
+            'id' => 'b2', 'x' => 2, 'y' => 1, 'owner_id' => 'p1',
+            'range' => 2, 'planted_at' => $now, 'explodes_at' => $now + 2, 'state' => 'active'
+        ];
+
+        $res = $this->engine->detonateBomb($state, 'b1');
+        $this->assertTrue($res['success']);
+        $this->assertContains('b1', $res['detonated_bomb_ids']);
+        $this->assertContains('b2', $res['detonated_bomb_ids']);
+
+        // Second call on b2 must fail gracefully (never explode twice)
+        $res2 = $this->engine->detonateBomb($state, 'b2');
+        $this->assertFalse($res2['success']);
+    }
 }

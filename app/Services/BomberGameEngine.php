@@ -176,6 +176,16 @@ class BomberGameEngine
             }
         }
 
+        // Check living player collisions: two living players cannot occupy the same tile.
+        // Dead players have no collision and can be walked through freely.
+        foreach ($state['players'] as $pid => $otherPlayer) {
+            if ($pid !== $playerId && !empty($otherPlayer['alive'])) {
+                if ($otherPlayer['x'] === $newX && $otherPlayer['y'] === $newY) {
+                    return ['success' => false, 'error' => 'Casilla ocupada por otro jugador', 'pos' => ['x' => $player['x'], 'y' => $player['y']]];
+                }
+            }
+        }
+
         // Apply movement
         $player['x'] = $newX;
         $player['y'] = $newY;
@@ -255,6 +265,7 @@ class BomberGameEngine
             'range' => $player['bomb_range'],
             'planted_at' => $plantedAt,
             'explodes_at' => $explodesAt,
+            'state' => 'active',
         ];
 
         $state['bombs'][$bombId] = $bomb;
@@ -272,11 +283,12 @@ class BomberGameEngine
      */
     public function detonateBomb(array &$state, string $bombId): array
     {
-        if (!isset($state['bombs'][$bombId])) {
-            return ['success' => false, 'error' => 'Bomba no encontrada'];
+        if (!isset($state['bombs'][$bombId]) || ($state['bombs'][$bombId]['state'] ?? 'active') !== 'active') {
+            return ['success' => false, 'error' => 'Bomba no encontrada o ya detonada'];
         }
 
         $rootBomb = $state['bombs'][$bombId];
+        $rootBomb['state'] = 'detonated';
         unset($state['bombs'][$bombId]);
 
         $bombsToDetonate = [$rootBomb];
@@ -342,9 +354,12 @@ class BomberGameEngine
                     // Check if another active bomb is in this tile -> CHAIN REACTION!
                     foreach ($state['bombs'] as $otherId => $otherBomb) {
                         if ($otherBomb['x'] === $tx && $otherBomb['y'] === $ty) {
-                            unset($state['bombs'][$otherId]);
-                            $bombsToDetonate[] = $otherBomb;
-                            $detonatedBombIds[] = $otherId;
+                            if (($otherBomb['state'] ?? 'active') === 'active') {
+                                $otherBomb['state'] = 'detonated';
+                                unset($state['bombs'][$otherId]);
+                                $bombsToDetonate[] = $otherBomb;
+                                $detonatedBombIds[] = $otherId;
+                            }
                         }
                     }
                 }
@@ -412,7 +427,7 @@ class BomberGameEngine
 
         $bombIds = array_keys($state['bombs']);
         foreach ($bombIds as $id) {
-            if (isset($state['bombs'][$id]) && $now >= $state['bombs'][$id]['explodes_at']) {
+            if (isset($state['bombs'][$id]) && ($state['bombs'][$id]['state'] ?? 'active') === 'active' && $now >= $state['bombs'][$id]['explodes_at']) {
                 $res = $this->detonateBomb($state, $id);
                 if ($res['success']) {
                     $results[] = $res;

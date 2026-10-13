@@ -115,7 +115,7 @@ export class GameRenderer {
         }
     }
 
-    render(gameState, currentUserId, animTime = 0) {
+    render(gameState, currentUserId, animTime = 0, currentServerTime = null) {
         const ctx = this.ctx;
         const ts = this.tileSize;
         const half = ts / 2;
@@ -158,7 +158,7 @@ export class GameRenderer {
             for (const id in gameState.bombs) {
                 const bomb = gameState.bombs[id];
                 const s = this.toScreen(bomb.x, bomb.y);
-                drawBomb(ctx, s.col * ts + half, s.row * ts + half, ts, bomb, motionTime);
+                drawBomb(ctx, s.col * ts + half, s.row * ts + half, ts, bomb, motionTime, currentServerTime);
             }
         }
 

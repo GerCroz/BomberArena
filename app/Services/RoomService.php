@@ -304,6 +304,10 @@ class RoomService
         }
 
         foreach ($events as [$type, $data]) {
+            if (is_array($data)) {
+                $data['version'] = $state['version'] ?? 1;
+                $data['server_time'] = microtime(true);
+            }
             broadcast(new GameRoomEvent($cleanCode, $type, $data));
         }
 
@@ -333,6 +337,7 @@ class RoomService
             $collected = [];
             $bombs = [];
             $rejected = 0;
+            $lastError = null;
 
             foreach (array_slice($actions, 0, 40) as $action) {
                 $type = $action['type'] ?? null;
@@ -347,6 +352,7 @@ class RoomService
                         }
                     } else {
                         $rejected++;
+                        $lastError = $res['error'] ?? 'Movimiento bloqueado';
                     }
                 } elseif ($type === 'bomb') {
                     $res = $this->engine->handlePlaceBomb($state, $playerId);
@@ -358,6 +364,7 @@ class RoomService
                         $bombs[] = $bombData;
                     } else {
                         $rejected++;
+                        $lastError = $res['error'] ?? 'No se pudo colocar la bomba';
                     }
                 }
             }
@@ -387,6 +394,7 @@ class RoomService
                 'alive' => $player['alive'],
                 'bombs' => $bombs,
                 'rejected' => $rejected,
+                'last_error' => $lastError,
             ];
         });
     }
@@ -398,7 +406,7 @@ class RoomService
     {
         $result = $this->handleActions($code, $playerId, [['type' => 'move', 'direction' => $direction]]);
         if (($result['success'] ?? false) && ($result['rejected'] ?? 0) > 0) {
-            return ['success' => false, 'error' => 'Movimiento bloqueado', 'pos' => $result['pos']];
+            return ['success' => false, 'error' => $result['last_error'] ?? 'Movimiento bloqueado', 'pos' => $result['pos']];
         }
         return $result;
     }
@@ -446,6 +454,23 @@ class RoomService
             }
 
             return $result;
+        });
+    }
+
+    /**
+     * Authoritative central room simulation tick.
+     * Evaluates expired bombs and progresses state.
+     */
+    public function tickRoom(string $code): array
+    {
+        return $this->mutateState($code, function (array &$state, array &$events, array &$telemetry) {
+            // Expired bombs are checked and detonated automatically by mutateState post-callback.
+            return [
+                'success' => true,
+                'version' => $state['version'] ?? 1,
+                'active_bombs' => count($state['bombs'] ?? []),
+                'server_time' => microtime(true),
+            ];
         });
     }
 

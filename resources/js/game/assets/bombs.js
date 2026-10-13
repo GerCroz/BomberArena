@@ -8,11 +8,17 @@
  */
 import { THEME } from '../theme.js';
 
-export function drawBomb(ctx, bx, by, size, bomb, animTime = 0) {
-    const elapsed = bomb.local_planted_at ? (performance.now() - bomb.local_planted_at) / 1000 : 0;
+export function drawBomb(ctx, bx, by, size, bomb, animTime = 0, currentServerTime = null) {
     const totalFuse = 2.0; // 2 seconds fuse
-    const remaining = Math.max(0, totalFuse - elapsed);
-    const progress = Math.min(1, elapsed / totalFuse); // 0.0 (new) to 1.0 (detonating)
+    let remaining = totalFuse;
+
+    if (currentServerTime && bomb.explodes_at) {
+        remaining = Math.max(0, bomb.explodes_at - currentServerTime);
+    } else if (bomb.local_planted_at) {
+        const elapsed = (performance.now() - bomb.local_planted_at) / 1000;
+        remaining = Math.max(0, totalFuse - elapsed);
+    }
+    const progress = Math.min(1, Math.max(0, 1 - (remaining / totalFuse))); // 0.0 (new) to 1.0 (detonating)
 
     const isCritical = remaining <= 0.55;
     const isDetonating = remaining <= 0.08;

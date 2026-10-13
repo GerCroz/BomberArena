@@ -425,6 +425,19 @@
         let gameRenderer = null;
         let sfx = null;
 
+        let serverClockOffset = 0;
+        let lastProcessedVersion = (gameState && gameState.version) ? gameState.version : 0;
+
+        function syncServerTime(serverUnixTimestamp) {
+            if (typeof serverUnixTimestamp === 'number' && serverUnixTimestamp > 0) {
+                serverClockOffset = (serverUnixTimestamp * 1000) - Date.now();
+            }
+        }
+
+        function getCurrentServerTime() {
+            return (Date.now() + serverClockOffset) / 1000;
+        }
+
         let currentOrientationMode = 'auto'; // 'auto', 'portrait', 'landscape'
 
         function applyOrientation(portrait) {
@@ -534,8 +547,19 @@
         }
 
         function handleIncomingEvent(e) {
-            console.log('Evento de sala recibido:', e);
             const { type, data } = e;
+
+            if (data && data.server_time) {
+                syncServerTime(data.server_time);
+            }
+
+            if (data && typeof data.version === 'number') {
+                if (data.version < lastProcessedVersion && type !== 'game_started' && type !== 'game_over') {
+                    // Stale or out-of-order event, ignore
+                    return;
+                }
+                lastProcessedVersion = data.version;
+            }
 
             switch (type) {
                 case 'player_joined':
@@ -673,6 +697,10 @@
                 currentRoom = data.room;
                 currentRoom.players = data.players;
                 gameState = data.game_state;
+                if (data.server_time) syncServerTime(data.server_time);
+                if (gameState && typeof gameState.version === 'number') {
+                    lastProcessedVersion = gameState.version;
+                }
                 updateLobbyView();
             } catch (err) {
                 console.error(err);
@@ -880,6 +908,15 @@
             if (gameState.bombs) {
                 for (const b of Object.values(gameState.bombs)) {
                     if (b.x === x && b.y === y) return false; // solid bomb
+                }
+            }
+            // Living player collisions: players cannot occupy the same tile.
+            // Dead/eliminated players do NOT block movement.
+            if (gameState.players) {
+                for (const [pid, p] of Object.entries(gameState.players)) {
+                    if (pid !== CURRENT_PLAYER_ID && p.alive && p.x === x && p.y === y) {
+                        return false;
+                    }
                 }
             }
             return true;
@@ -1100,39 +1137,31 @@
             enqueueAction({ type: 'bomb', temp_id: tempId });
         }
 
-        // Active bomb detonation checker running on client loop
+        // Active bomb detonation checker running on client loop with absolute server time
         function checkActiveBombs() {
             if (!gameState || !gameState.bombs) return;
-            const now = performance.now();
+            const curServerTime = getCurrentServerTime();
 
             Object.values(gameState.bombs).forEach(b => {
-                if (!b.local_planted_at) {
-                    b.local_planted_at = now;
-                }
+                if (b._optimistic) return; // Wait for authoritative server ID
 
-                const elapsed = now - b.local_planted_at;
+                const explodesAt = b.explodes_at || (b.planted_at ? (b.planted_at + 2.0) : (curServerTime + 2.0));
                 const amOwner = b.owner_id === CURRENT_PLAYER_ID;
 
-                // Explode after 2.0 seconds:
-                // 1. Owner triggers at >= 1950ms
-                // 2. Host fallback at >= 2150ms
-                // 3. Emergency fallback at >= 2400ms
-                const shouldTrigger = (amOwner && elapsed >= 1950) ||
-                                      (isHost && elapsed >= 2150) ||
-                                      (elapsed >= 2400);
+                // Server is authoritative. Client pings detonate only when fuse has expired:
+                const shouldTrigger = (amOwner && curServerTime >= explodesAt) ||
+                                      (isHost && curServerTime >= (explodesAt + 0.15)) ||
+                                      (curServerTime >= (explodesAt + 0.35));
 
                 if (shouldTrigger && !b._triggering) {
                     b._triggering = true;
-                    // Detonation call only for authoritative server bomb ID
-                    if (!b._optimistic) {
-                        triggerDetonation(b.id).finally(() => {
-                            setTimeout(() => {
-                                if (gameState.bombs && gameState.bombs[b.id]) {
-                                    b._triggering = false;
-                                }
-                            }, 400);
-                        });
-                    }
+                    triggerDetonation(b.id).finally(() => {
+                        setTimeout(() => {
+                            if (gameState.bombs && gameState.bombs[b.id]) {
+                                b._triggering = false;
+                            }
+                        }, 300);
+                    });
                 }
             });
         }
@@ -1209,6 +1238,8 @@
 
         // Canvas Rendering Loop via Modular GameRenderer
         let animFrameId = null;
+        let lastServerTickTime = 0;
+
         function startGameLoop() {
             startTimer();
             updateHud();
@@ -1216,12 +1247,32 @@
 
             function loop() {
                 checkActiveBombs();
+                const curServerTime = getCurrentServerTime();
+
+                // Periodic host tick (heartbeat) when active bombs exist to guarantee server simulation progression
+                if (isHost && gameState && gameState.bombs && Object.keys(gameState.bombs).length > 0) {
+                    const now = performance.now();
+                    if (now - lastServerTickTime > 250) {
+                        lastServerTickTime = now;
+                        sendServerTick();
+                    }
+                }
+
                 if (gameRenderer) {
-                    gameRenderer.render(gameState, CURRENT_PLAYER_ID, performance.now() / 1000);
+                    gameRenderer.render(gameState, CURRENT_PLAYER_ID, performance.now() / 1000, curServerTime);
                 }
                 animFrameId = requestAnimationFrame(loop);
             }
             loop();
+        }
+
+        async function sendServerTick() {
+            try {
+                await fetch(`/api/rooms/${ROOM_CODE}/tick`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN }
+                });
+            } catch (err) {}
         }
 
         function escapeHtml(text) {
