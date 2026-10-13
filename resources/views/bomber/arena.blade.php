@@ -7,26 +7,32 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #060814;
-            --neon-cyan: #00f0ff;
-            --neon-pink: #ff007f;
-            --neon-yellow: #ffe600;
-            --neon-green: #00ff66;
-            --card-bg: rgba(13, 17, 38, 0.9);
-            --border-glow: rgba(0, 240, 255, 0.3);
+            --bg-main: #0B1020;
+            --panel-bg: #151D31;
+            --panel-border: #233052;
+            --neon-cyan: #38BDF8;
+            --neon-violet: #A78BFA;
+            --neon-coral: #FB7185;
+            --neon-green: #34D399;
+            --neon-yellow: #FBBF24;
         }
         * {
             box-sizing: border-box;
             -webkit-tap-highlight-color: transparent;
         }
         body {
-            background: #050711;
+            background-color: var(--bg-main);
+            background-image: 
+                radial-gradient(circle at 50% 15%, #182342 0%, #0B1020 80%),
+                linear-gradient(rgba(35, 48, 82, 0.12) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(35, 48, 82, 0.12) 1px, transparent 1px);
+            background-size: 100% 100%, 36px 36px, 36px 36px;
             margin: 0;
             font-family: 'Rajdhani', sans-serif;
-            color: #f1f5f9;
+            color: #F1F5F9;
             min-height: 100vh;
             display: flex;
             flex-direction: column;
@@ -42,11 +48,11 @@
         /* Responsive Canvas Wrapper */
         .canvas-container {
             position: relative;
-            box-shadow: 0 0 30px rgba(0, 240, 255, 0.25);
-            border: 2px solid rgba(0, 240, 255, 0.4);
-            border-radius: 12px;
+            box-shadow: 0 0 35px rgba(56, 189, 248, 0.25), 0 10px 40px rgba(0, 0, 0, 0.6);
+            border: 2px solid #233052;
+            border-radius: 16px;
             overflow: hidden;
-            background: #02040a;
+            background: #0B1020;
             width: 100%;
             max-width: 650px;
             aspect-ratio: 13 / 11;
@@ -71,7 +77,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 10px 16px;
+            padding: 10px 14px;
             margin-top: 6px;
             touch-action: none;
         }
@@ -92,14 +98,13 @@
         }
 
         .touch-pad-btn {
-            background: linear-gradient(145deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95));
-            border: 1.5px solid rgba(0, 240, 255, 0.35);
+            background: linear-gradient(145deg, #1E294B, #0F172A);
+            border: 1.5px solid #2A3B66;
             border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 20px;
-            color: #00f0ff;
+            color: var(--neon-cyan);
             user-select: none;
             cursor: pointer;
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
@@ -107,10 +112,10 @@
         }
         .touch-pad-btn:active, .touch-pad-btn.is-active {
             transform: scale(0.90);
-            background: rgba(0, 240, 255, 0.35);
-            border-color: #00f0ff;
-            box-shadow: 0 0 16px rgba(0, 240, 255, 0.7), inset 0 2px 6px rgba(0, 0, 0, 0.6);
-            color: #ffffff;
+            background: rgba(56, 189, 248, 0.35);
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 16px rgba(56, 189, 248, 0.7), inset 0 2px 6px rgba(0, 0, 0, 0.6);
+            color: #FFFFFF;
         }
 
         .dpad-center {
@@ -124,7 +129,7 @@
             font-size: 10px;
         }
 
-        /* Giant Tactile Bomb Action Button */
+        /* Tactile Bomb Action Button */
         .bomb-cluster {
             display: flex;
             flex-direction: column;
@@ -136,14 +141,13 @@
             width: 78px;
             height: 78px;
             border-radius: 50%;
-            background: radial-gradient(circle at 35% 35%, #ff2a8d 0%, #b30059 70%, #660033 100%);
-            border: 3px solid #ff007f;
-            box-shadow: 0 0 22px rgba(255, 0, 127, 0.55), inset 0 2px 6px rgba(255, 255, 255, 0.4);
+            background: radial-gradient(circle at 35% 35%, #FB7185 0%, #E11D48 65%, #881337 100%);
+            border: 3px solid #FDA4AF;
+            box-shadow: 0 0 22px rgba(251, 113, 133, 0.55), inset 0 2px 6px rgba(255, 255, 255, 0.4);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 34px;
-            color: #ffffff;
+            color: #FFFFFF;
             cursor: pointer;
             transition: transform 0.08s ease, box-shadow 0.08s ease;
             position: relative;
@@ -152,65 +156,78 @@
             .bomb-touch-btn {
                 width: 86px;
                 height: 86px;
-                font-size: 38px;
             }
         }
         .bomb-touch-btn:active, .bomb-touch-btn.is-active {
             transform: scale(0.88);
-            box-shadow: 0 0 35px rgba(255, 0, 127, 0.9), inset 0 4px 12px rgba(0, 0, 0, 0.8);
-            background: radial-gradient(circle at 50% 50%, #ff007f 0%, #800040 100%);
+            box-shadow: 0 0 35px rgba(251, 113, 133, 0.9), inset 0 4px 12px rgba(0, 0, 0, 0.8);
+            background: radial-gradient(circle at 50% 50%, #FB7185 0%, #9F1239 100%);
         }
         .bomb-label {
             font-family: 'Orbitron', monospace;
             font-size: 10px;
             font-weight: 700;
-            color: #ff007f;
+            color: var(--neon-coral);
             letter-spacing: 1px;
             text-transform: uppercase;
         }
 
-        .glass-panel {
-            background: rgba(15, 23, 42, 0.85);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.12);
+        .cyber-panel {
+            background: rgba(21, 29, 49, 0.92);
+            backdrop-filter: blur(14px);
+            border: 1px solid var(--panel-border);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
         }
         .pulse-text {
             animation: pulseText 1.5s infinite;
         }
         @keyframes pulseText {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.95); }
+        }
+        i[data-lucide] {
+            width: 18px;
+            height: 18px;
+            stroke-width: 2px;
+            display: inline-block;
+            vertical-align: middle;
         }
     </style>
 </head>
-<body class="p-1 sm:p-3">
+<body class="p-1.5 sm:p-3">
 
-    <!-- Top Bar Navigation & Info (Compact on mobile) -->
-    <header class="w-full max-w-5xl mx-auto flex items-center justify-between py-1.5 px-3 rounded-xl glass-panel mb-2">
-        <div class="flex items-center gap-2">
-            <a href="{{ route('lobby') }}" class="text-xs uppercase font-bold text-slate-400 hover:text-cyan-400 transition-colors">
-                ← Lobby
+    <!-- Top Bar Navigation & Info -->
+    <header class="w-full max-w-5xl mx-auto flex items-center justify-between py-2 px-3 sm:px-4 rounded-2xl cyber-panel mb-2">
+        <div class="flex items-center gap-2.5">
+            <a href="{{ route('lobby') }}" class="text-xs uppercase font-bold text-slate-400 hover:text-cyan-400 transition-colors flex items-center gap-1">
+                <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+                <span class="hidden sm:inline">LOBBY</span>
             </a>
             <div class="h-3 w-px bg-slate-700"></div>
             <div class="arcade-font text-xs sm:text-sm font-bold text-cyan-400 flex items-center gap-1.5">
-                <span>SALA:</span>
-                <span class="bg-cyan-950 px-2 py-0.5 rounded border border-cyan-500/40 text-white tracking-widest" id="header-room-code">{{ $room->code }}</span>
-                <button type="button" onclick="copyCode()" class="text-xs text-slate-400 hover:text-white" title="Copiar código">📋</button>
+                <span class="text-slate-400">SALA:</span>
+                <span class="bg-cyan-950/80 px-2.5 py-0.5 rounded-lg border border-cyan-500/40 text-white tracking-widest font-black" id="header-room-code">{{ $room->code }}</span>
+                <button type="button" onclick="copyCode()" class="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-cyan-300 transition-colors" title="Copiar código">
+                    <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                </button>
             </div>
         </div>
 
         <div class="flex items-center gap-2">
-            <div class="flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700">
+            <!-- WebSocket Connection Status -->
+            <div class="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-900 border border-slate-700">
                 <span class="w-2 h-2 rounded-full bg-emerald-400" id="arena-ws-dot"></span>
-                <span id="arena-ws-status" class="hidden sm:inline">Reverb Conectado</span>
+                <i data-lucide="wifi" class="w-3 h-3 text-emerald-400"></i>
+                <span id="arena-ws-status" class="hidden sm:inline text-slate-300">Reverb</span>
             </div>
             <!-- Haptic Vibration Toggle -->
-            <button type="button" id="btn-toggle-haptics" onclick="toggleHaptics()" class="px-2 py-0.5 rounded bg-slate-800 text-[11px] text-cyan-300 border border-slate-700" title="Vibración Háptica">
-                📳 VIB ON
+            <button type="button" id="btn-toggle-haptics" onclick="toggleHaptics()" class="px-2.5 py-1 rounded-xl bg-slate-900 text-[11px] font-bold text-cyan-300 border border-slate-700 flex items-center gap-1 cursor-pointer hover:bg-slate-800" title="Vibración Háptica">
+                <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
+                <span id="haptic-label" class="hidden sm:inline">VIB ON</span>
             </button>
             <!-- Audio Mute Button -->
-            <button type="button" id="btn-toggle-audio" onclick="toggleAudio()" class="px-2 py-0.5 rounded bg-slate-800 text-[11px] text-slate-300 hover:text-white border border-slate-700" title="Silenciar / Activar sonido">
-                🔊
+            <button type="button" id="btn-toggle-audio" onclick="toggleAudio()" class="px-2.5 py-1 rounded-xl bg-slate-900 text-[11px] font-bold text-slate-300 hover:text-white border border-slate-700 flex items-center gap-1 cursor-pointer hover:bg-slate-800" title="Silenciar / Activar sonido">
+                <i data-lucide="volume-2" id="audio-icon" class="w-3.5 h-3.5 text-cyan-400"></i>
             </button>
         </div>
     </header>
@@ -218,44 +235,46 @@
     <!-- MAIN GAME AREA WRAPPER -->
     <main class="w-full max-w-5xl mx-auto flex-1 flex flex-col items-center justify-center relative">
 
-        <!-- LOBBY WAITING SCREEN (Shown before game start) -->
-        <div id="screen-lobby" class="w-full max-w-2xl glass-panel p-4 sm:p-8 rounded-2xl border border-cyan-500/30 text-center {{ $room->status === 'playing' ? 'hidden' : '' }}">
+        <!-- LOBBY WAITING SCREEN -->
+        <div id="screen-lobby" class="w-full max-w-2xl cyber-panel p-5 sm:p-8 rounded-2xl text-center {{ $room->status === 'playing' ? 'hidden' : '' }}">
             <h2 class="arcade-font text-2xl sm:text-3xl font-black text-white mb-1 tracking-wide">
                 SALA DE ESPERA <span class="text-cyan-400">[{{ $room->code }}]</span>
             </h2>
-            <p class="text-slate-400 text-xs sm:text-sm mb-5">Comparte el código con tus contrincantes (2 a 4 jugadores).</p>
+            <p class="text-slate-400 text-xs sm:text-sm mb-6">Comparte el código con tus contrincantes (2 a 4 jugadores).</p>
 
             <!-- Slots Grid -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" id="lobby-slots-grid">
-                <!-- Dynamically rendered slots -->
+                <!-- Dynamically rendered slots with character SVG avatars -->
             </div>
 
             <!-- Action buttons -->
             <div class="flex flex-col sm:flex-row gap-3 justify-center">
                 <button type="button" id="btn-ready-toggle" onclick="toggleReady()"
-                    class="arcade-font px-5 py-3 rounded-xl font-bold text-xs sm:text-sm tracking-wider uppercase bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 transition-all">
-                    LISTO: <span id="ready-status-text" class="text-red-400">NO</span>
+                    class="arcade-font px-5 py-3 rounded-xl font-bold text-xs sm:text-sm tracking-wider uppercase bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 transition-all flex items-center justify-center gap-2 cursor-pointer">
+                    <i data-lucide="check" class="w-4 h-4 text-emerald-400"></i>
+                    <span>LISTO: <span id="ready-status-text" class="text-rose-400 font-black">NO</span></span>
                 </button>
 
                 <button type="button" id="btn-start-game" onclick="startGame()"
-                    class="arcade-font px-6 py-3 rounded-xl font-black text-xs sm:text-sm tracking-wider uppercase bg-gradient-to-r from-cyan-400 to-blue-600 text-slate-950 shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/60 transition-all disabled:opacity-40 disabled:pointer-events-none">
-                    🚀 INICIAR PARTIDA
+                    class="arcade-font px-6 py-3 rounded-xl font-black text-xs sm:text-sm tracking-wider uppercase bg-gradient-to-r from-cyan-400 to-blue-600 text-slate-950 shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/60 transition-all disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-2 cursor-pointer">
+                    <i data-lucide="play" class="w-4 h-4"></i>
+                    <span>INICIAR PARTIDA</span>
                 </button>
             </div>
-            <div id="lobby-warning" class="text-xs text-amber-400 mt-3 font-semibold hidden"></div>
+            <div id="lobby-warning" class="text-xs text-amber-400 mt-3.5 font-semibold hidden"></div>
         </div>
 
         <!-- PLAYING SCREEN -->
         <div id="screen-game" class="w-full flex flex-col items-center {{ $room->status === 'playing' ? '' : 'hidden' }}">
             
-            <!-- In-game HUD (Compact) -->
+            <!-- In-game HUD -->
             <div class="w-full max-w-[650px] flex items-center justify-between mb-1.5 px-1 text-[11px] font-bold uppercase tracking-wider">
-                <div class="flex items-center gap-1.5 overflow-x-auto" id="hud-players">
-                    <!-- Dynamic player chips -->
+                <div class="flex items-center gap-2 overflow-x-auto py-0.5" id="hud-players">
+                    <!-- Dynamic player chips with mini robot avatars -->
                 </div>
-                <div class="flex items-center gap-1.5 bg-slate-900/90 px-2 py-0.5 rounded-lg border border-cyan-500/30 shrink-0">
-                    <span class="text-slate-400">⏱️</span>
-                    <span class="arcade-font text-cyan-400 text-sm" id="game-timer">03:00</span>
+                <div class="flex items-center gap-1.5 bg-slate-900/90 px-3 py-1 rounded-xl border border-cyan-500/30 shrink-0">
+                    <i data-lucide="clock" class="w-3.5 h-3.5 text-cyan-400"></i>
+                    <span class="arcade-font text-cyan-400 text-sm font-black" id="game-timer">03:00</span>
                 </div>
             </div>
 
@@ -264,51 +283,64 @@
                 <canvas id="game-canvas" width="650" height="550"></canvas>
 
                 <!-- Countdown Overlay -->
-                <div id="countdown-overlay" class="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center hidden z-20">
+                <div id="countdown-overlay" class="absolute inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center hidden z-20">
                     <div class="arcade-font text-6xl md:text-9xl font-black text-cyan-400 pulse-text" id="countdown-number">3</div>
                 </div>
 
                 <!-- Match Over Modal -->
                 <div id="gameover-modal" class="absolute inset-0 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-4 text-center hidden z-30">
+                    <!-- Winner Avatar Preview Spot -->
+                    <div id="gameover-avatar-podium" class="mb-2 flex items-center justify-center"></div>
+
                     <h3 class="arcade-font text-3xl sm:text-5xl font-black text-white mb-1" id="gameover-title">¡VICTORIA!</h3>
-                    <p class="text-sm sm:text-base text-cyan-400 font-semibold mb-4" id="gameover-subtitle">Piloto 1 es el último sobreviviente</p>
+                    <p class="text-sm sm:text-base text-cyan-400 font-semibold mb-4" id="gameover-subtitle">Piloto 1 es el Campeón</p>
 
                     <!-- Scoreboard -->
-                    <div class="w-full max-w-sm bg-slate-900/80 border border-slate-700 rounded-xl p-3 mb-4 text-xs" id="gameover-stats">
+                    <div class="w-full max-w-sm cyber-panel rounded-xl p-3 mb-4 text-xs" id="gameover-stats">
                         <!-- Stats rows -->
                     </div>
 
                     <div class="flex gap-3">
-                        <button type="button" onclick="requestRematch()" class="arcade-font px-5 py-2.5 rounded-xl bg-cyan-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-cyan-400/40 hover:bg-cyan-300">
-                            🔄 REVANCHA
+                        <button type="button" onclick="requestRematch()" class="arcade-font px-5 py-2.5 rounded-xl bg-cyan-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-cyan-400/40 hover:bg-cyan-300 flex items-center gap-2 cursor-pointer">
+                            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                            <span>REVANCHA</span>
                         </button>
-                        <a href="{{ route('lobby') }}" class="arcade-font px-5 py-2.5 rounded-xl bg-slate-800 text-slate-200 font-bold text-xs uppercase tracking-wider hover:bg-slate-700">
-                            LOBBY
+                        <a href="{{ route('lobby') }}" class="arcade-font px-5 py-2.5 rounded-xl bg-slate-800 text-slate-200 font-bold text-xs uppercase tracking-wider hover:bg-slate-700 flex items-center gap-2 cursor-pointer">
+                            <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+                            <span>LOBBY</span>
                         </a>
                     </div>
                 </div>
             </div>
 
-            <!-- Ergonomic Touch Controls for Mobile (D-Pad + Haptic Bomb Button) -->
+            <!-- Ergonomic Touch Controls for Mobile -->
             <div class="gamepad-container md:hidden" id="mobile-controls">
                 
                 <!-- Directional D-Pad -->
                 <div class="dpad-cluster">
                     <div></div>
-                    <button type="button" id="dpad-up" class="touch-pad-btn" aria-label="Arriba">▲</button>
+                    <button type="button" id="dpad-up" class="touch-pad-btn" aria-label="Arriba">
+                        <i data-lucide="arrow-up" class="w-5 h-5"></i>
+                    </button>
                     <div></div>
-                    <button type="button" id="dpad-left" class="touch-pad-btn" aria-label="Izquierda">◀</button>
+                    <button type="button" id="dpad-left" class="touch-pad-btn" aria-label="Izquierda">
+                        <i data-lucide="arrow-left" class="w-5 h-5"></i>
+                    </button>
                     <div class="dpad-center">●</div>
-                    <button type="button" id="dpad-right" class="touch-pad-btn" aria-label="Derecha">▶</button>
+                    <button type="button" id="dpad-right" class="touch-pad-btn" aria-label="Derecha">
+                        <i data-lucide="arrow-right" class="w-5 h-5"></i>
+                    </button>
                     <div></div>
-                    <button type="button" id="dpad-down" class="touch-pad-btn" aria-label="Abajo">▼</button>
+                    <button type="button" id="dpad-down" class="touch-pad-btn" aria-label="Abajo">
+                        <i data-lucide="arrow-down" class="w-5 h-5"></i>
+                    </button>
                     <div></div>
                 </div>
 
                 <!-- Giant Bomb Button with Haptics -->
                 <div class="bomb-cluster">
                     <button type="button" id="dpad-bomb" class="bomb-touch-btn" aria-label="Colocar Bomba">
-                        💣
+                        <i data-lucide="bomb" class="w-9 h-9 text-white"></i>
                     </button>
                     <span class="bomb-label">BOMBA</span>
                 </div>
@@ -319,7 +351,7 @@
 
     </main>
 
-    <!-- Haptic Vibration Feedback Engine -->
+    <!-- Haptic Engine -->
     <script>
         class HapticEngine {
             constructor() {
@@ -328,12 +360,15 @@
             }
             toggle() {
                 this.enabled = !this.enabled;
+                const label = document.getElementById('haptic-label');
+                if (label) {
+                    label.innerText = this.enabled ? 'VIB ON' : 'VIB OFF';
+                }
                 const btn = document.getElementById('btn-toggle-haptics');
                 if (btn) {
-                    btn.innerText = this.enabled ? '📳 VIB ON' : '📴 VIB OFF';
                     btn.className = this.enabled 
-                        ? 'px-2 py-0.5 rounded bg-slate-800 text-[11px] text-cyan-300 border border-slate-700' 
-                        : 'px-2 py-0.5 rounded bg-slate-800 text-[11px] text-slate-500 border border-slate-700';
+                        ? 'px-2.5 py-1 rounded-xl bg-slate-900 text-[11px] font-bold text-cyan-300 border border-slate-700 flex items-center gap-1 cursor-pointer' 
+                        : 'px-2.5 py-1 rounded-xl bg-slate-900 text-[11px] font-bold text-slate-500 border border-slate-700 flex items-center gap-1 cursor-pointer';
                 }
                 if (this.enabled) this.light();
             }
@@ -360,99 +395,6 @@
         }
     </script>
 
-    <!-- Retro Audio Synthesizer (Web Audio API) -->
-    <script>
-        class SoundFX {
-            constructor() {
-                this.ctx = null;
-                this.enabled = true;
-            }
-            init() {
-                if (!this.ctx) {
-                    const AudioContext = window.AudioContext || window.webkitAudioContext;
-                    if (AudioContext) this.ctx = new AudioContext();
-                }
-            }
-            playBombDrop() {
-                if (!this.enabled) return;
-                this.init();
-                if (!this.ctx) return;
-                const osc = this.ctx.createOscillator();
-                const gain = this.ctx.createGain();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(440, this.ctx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(120, this.ctx.currentTime + 0.15);
-                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
-                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
-                osc.connect(gain);
-                gain.connect(this.ctx.destination);
-                osc.start();
-                osc.stop(this.ctx.currentTime + 0.15);
-            }
-            playExplosion() {
-                if (!this.enabled) return;
-                this.init();
-                if (!this.ctx) return;
-                const bufferSize = this.ctx.sampleRate * 0.4;
-                const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-                const data = buffer.getChannelData(0);
-                for (let i = 0; i < bufferSize; i++) {
-                    data[i] = Math.random() * 2 - 1;
-                }
-                const noise = this.ctx.createBufferSource();
-                noise.buffer = buffer;
-                const filter = this.ctx.createBiquadFilter();
-                filter.type = 'lowpass';
-                filter.frequency.setValueAtTime(800, this.ctx.currentTime);
-                filter.frequency.linearRampToValueAtTime(80, this.ctx.currentTime + 0.4);
-                const gain = this.ctx.createGain();
-                gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.4);
-                noise.connect(filter);
-                filter.connect(gain);
-                gain.connect(this.ctx.destination);
-                noise.start();
-            }
-            playPowerup() {
-                if (!this.enabled) return;
-                this.init();
-                if (!this.ctx) return;
-                const osc = this.ctx.createOscillator();
-                const gain = this.ctx.createGain();
-                osc.type = 'triangle';
-                osc.frequency.setValueAtTime(300, this.ctx.currentTime);
-                osc.frequency.linearRampToValueAtTime(880, this.ctx.currentTime + 0.2);
-                gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
-                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.2);
-                osc.connect(gain);
-                gain.connect(this.ctx.destination);
-                osc.start();
-                osc.stop(this.ctx.currentTime + 0.2);
-            }
-            playElimination() {
-                if (!this.enabled) return;
-                this.init();
-                if (!this.ctx) return;
-                const osc = this.ctx.createOscillator();
-                const gain = this.ctx.createGain();
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(250, this.ctx.currentTime);
-                osc.frequency.linearRampToValueAtTime(70, this.ctx.currentTime + 0.3);
-                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
-                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
-                osc.connect(gain);
-                gain.connect(this.ctx.destination);
-                osc.start();
-                osc.stop(this.ctx.currentTime + 0.3);
-            }
-        }
-        const sfx = new SoundFX();
-        function toggleAudio() {
-            sfx.enabled = !sfx.enabled;
-            document.getElementById('btn-toggle-audio').innerText = sfx.enabled ? '🔊' : '🔇';
-        }
-    </script>
-
     <!-- Client State & Canvas Game Loop -->
     <script>
         const ROOM_CODE = "{{ $room->code }}";
@@ -463,23 +405,46 @@
         let gameState = @json($room->game_state);
         let myPlayer = null;
         let isHost = false;
-        let particles = [];
         let timerInterval = null;
         let remainingSeconds = {{ $room->round_duration_seconds }};
 
         const canvas = document.getElementById('game-canvas');
-        const ctx = canvas.getContext('2d');
-        const TILE_SIZE = 50; // 13 cols * 50 = 650px, 11 rows * 50 = 550px
+        let gameRenderer = null;
+        let sfx = null;
 
         document.addEventListener('DOMContentLoaded', () => {
+            // Initialize Game Renderer & Audio Synthesizer
+            if (window.BomberEngine) {
+                gameRenderer = new window.BomberEngine.GameRenderer(canvas);
+                sfx = new window.BomberEngine.SoundEngine();
+            }
+
             initEcho();
             updateLobbyView();
             initKeyboard();
             initTouchControls();
+
+            if (window.lucide && window.lucide.createIcons) {
+                window.lucide.createIcons();
+            }
+
             if (currentRoom.status === 'playing' && gameState) {
                 startGameLoop();
             }
         });
+
+        function toggleAudio() {
+            if (!sfx) return;
+            const enabled = sfx.toggle();
+            const icon = document.getElementById('audio-icon');
+            if (icon) {
+                icon.setAttribute('data-lucide', enabled ? 'volume-2' : 'volume-x');
+                icon.className = enabled ? 'w-3.5 h-3.5 text-cyan-400' : 'w-3.5 h-3.5 text-slate-500';
+            }
+            if (window.lucide && window.lucide.createIcons) {
+                window.lucide.createIcons();
+            }
+        }
 
         function copyCode() {
             navigator.clipboard.writeText(ROOM_CODE);
@@ -536,7 +501,7 @@
                         }
 
                         if (data.collected_powerup) {
-                            sfx.playPowerup();
+                            if (sfx) sfx.playPowerup();
                             if (data.player_id === CURRENT_PLAYER_ID) {
                                 haptics.heavy();
                             }
@@ -548,7 +513,7 @@
                     if (gameState) {
                         data.bomb.local_planted_at = performance.now();
                         gameState.bombs[data.bomb.id] = data.bomb;
-                        sfx.playBombDrop();
+                        if (sfx) sfx.playBombDrop();
                     }
                     break;
                 case 'bomb_exploded':
@@ -560,14 +525,23 @@
                             });
                         }
 
-                        sfx.playExplosion();
+                        // Add explosion effect to modular GameRenderer
+                        if (gameRenderer) {
+                            gameRenderer.addExplosion(data.explosion_tiles || [], data.destroyed_blocks || []);
+                        }
+
+                        if (sfx) {
+                            sfx.playExplosion();
+                            if (data.destroyed_blocks && data.destroyed_blocks.length > 0) {
+                                sfx.playBlockCrumble();
+                            }
+                        }
                         haptics.explosion();
 
-                        // Destroy blocks
+                        // Destroy blocks in grid state
                         if (data.destroyed_blocks) {
                             data.destroyed_blocks.forEach(b => {
                                 gameState.grid[b.y][b.x] = 0;
-                                spawnExplosionParticles(b.x * TILE_SIZE + 25, b.y * TILE_SIZE + 25, '#ff007f');
                             });
                         }
 
@@ -578,17 +552,14 @@
                             });
                         }
 
-                        // Explosion tiles particles & remove any bomb caught in explosion
-                        if (data.explosion_tiles) {
+                        // Remove any bomb caught in explosion area
+                        if (data.explosion_tiles && gameState.bombs) {
                             data.explosion_tiles.forEach(t => {
-                                spawnExplosionParticles(t.x * TILE_SIZE + 25, t.y * TILE_SIZE + 25, '#ffe600');
-                                if (gameState.bombs) {
-                                    Object.keys(gameState.bombs).forEach(bId => {
-                                        if (gameState.bombs[bId].x === t.x && gameState.bombs[bId].y === t.y) {
-                                            delete gameState.bombs[bId];
-                                        }
-                                    });
-                                }
+                                Object.keys(gameState.bombs).forEach(bId => {
+                                    if (gameState.bombs[bId].x === t.x && gameState.bombs[bId].y === t.y) {
+                                        delete gameState.bombs[bId];
+                                    }
+                                });
                             });
                         }
 
@@ -598,7 +569,7 @@
                                 if (gameState.players[p.player_id]) {
                                     gameState.players[p.player_id].alive = false;
                                 }
-                                sfx.playElimination();
+                                if (sfx) sfx.playElimination();
                                 if (p.player_id === CURRENT_PLAYER_ID) {
                                     haptics.explosion();
                                 }
@@ -610,6 +581,7 @@
                     break;
                 case 'game_over':
                     showGameOverModal(data);
+                    if (sfx) sfx.playVictory();
                     haptics.victory();
                     break;
             }
@@ -630,6 +602,7 @@
 
         function updateLobbyView() {
             const grid = document.getElementById('lobby-slots-grid');
+            if (!grid) return;
             grid.innerHTML = '';
 
             myPlayer = currentRoom.players.find(p => p.player_id === CURRENT_PLAYER_ID);
@@ -637,48 +610,48 @@
 
             const colorMap = {
                 'neon-blue': { border: 'border-cyan-400', text: 'text-cyan-400', bg: 'bg-cyan-950/40' },
-                'neon-pink': { border: 'border-pink-500', text: 'text-pink-500', bg: 'bg-pink-950/40' },
-                'neon-yellow': { border: 'border-yellow-400', text: 'text-yellow-400', bg: 'bg-yellow-950/40' },
+                'neon-pink': { border: 'border-rose-400', text: 'text-rose-400', bg: 'bg-rose-950/40' },
+                'neon-yellow': { border: 'border-amber-400', text: 'text-amber-400', bg: 'bg-amber-950/40' },
                 'neon-green': { border: 'border-emerald-400', text: 'text-emerald-400', bg: 'bg-emerald-950/40' },
             };
 
             for (let i = 0; i < 4; i++) {
                 const p = currentRoom.players[i];
                 const card = document.createElement('div');
-                card.className = 'p-3 rounded-xl border flex flex-col items-center justify-between min-h-[120px] transition-all ';
+                card.className = 'p-3 rounded-2xl border flex flex-col items-center justify-between min-h-[140px] transition-all ';
 
                 if (p) {
                     const c = colorMap[p.color] || colorMap['neon-blue'];
                     card.className += `${c.border} ${c.bg}`;
+                    const avatarSVG = window.BomberEngine ? window.BomberEngine.getCharacterSVG(p.color, 54) : '';
+
                     card.innerHTML = `
                         <div class="text-[10px] uppercase font-bold tracking-widest ${c.text}">JUGADOR ${i + 1}</div>
-                        <div class="my-1.5">
-                            <div class="w-10 h-10 rounded-full border-2 ${c.border} flex items-center justify-center text-lg font-black bg-slate-900">
-                                🤖
-                            </div>
+                        <div class="my-1.5 flex items-center justify-center">
+                            ${avatarSVG}
                         </div>
-                        <div class="text-xs font-bold text-white truncate max-w-[100px]">${escapeHtml(p.nickname)}</div>
-                        <div class="mt-1.5 text-[10px] font-semibold ${p.is_ready ? 'text-emerald-400' : 'text-slate-400'}">
-                            ${p.is_host ? '👑 ANFITRIÓN' : (p.is_ready ? '✓ LISTO' : '⏳ ESPERA')}
+                        <div class="text-xs font-bold text-white truncate max-w-[110px]">${escapeHtml(p.nickname)}</div>
+                        <div class="mt-1 text-[10px] font-bold ${p.is_ready ? 'text-emerald-400' : 'text-slate-400'}">
+                            ${p.is_host ? '👑 ANFITRIÓN' : (p.is_ready ? '✓ LISTO' : '⏳ ESPERANDO')}
                         </div>
                     `;
                 } else {
                     card.className += 'border-slate-800 bg-slate-900/40 text-slate-600 border-dashed';
                     card.innerHTML = `
                         <div class="text-[10px] uppercase font-bold tracking-widest text-slate-600">SLOT ${i + 1}</div>
-                        <div class="w-10 h-10 rounded-full border border-slate-800 flex items-center justify-center text-sm my-1.5 text-slate-700">
+                        <div class="w-12 h-12 rounded-full border border-slate-800 flex items-center justify-center text-sm my-2 text-slate-700 font-bold">
                             +
                         </div>
-                        <div class="text-[10px] font-semibold text-slate-600">LIBRE</div>
+                        <div class="text-[10px] font-semibold text-slate-600">DISPONIBLE</div>
                     `;
                 }
                 grid.appendChild(card);
             }
 
             const readyBtnText = document.getElementById('ready-status-text');
-            if (myPlayer) {
+            if (myPlayer && readyBtnText) {
                 readyBtnText.innerText = myPlayer.is_ready ? 'SÍ' : 'NO';
-                readyBtnText.className = myPlayer.is_ready ? 'text-emerald-400' : 'text-red-400';
+                readyBtnText.className = myPlayer.is_ready ? 'text-emerald-400 font-black' : 'text-rose-400 font-black';
             }
 
             const startBtn = document.getElementById('btn-start-game');
@@ -690,11 +663,15 @@
                 const canStart = currentRoom.players.length >= 2;
                 startBtn.disabled = !canStart;
                 if (!canStart) {
-                    warning.innerText = 'Se requieren al menos 2 jugadores para comenzar.';
+                    warning.innerText = 'Se requieren al menos 2 jugadores para comenzar la partida.';
                     warning.classList.remove('hidden');
                 } else {
                     warning.classList.add('hidden');
                 }
+            }
+
+            if (window.lucide && window.lucide.createIcons) {
+                window.lucide.createIcons();
             }
         }
 
@@ -736,15 +713,18 @@
             overlay.classList.remove('hidden');
             let count = 3;
             num.innerText = count;
+            if (sfx) sfx.playCountdownTick();
 
             const interval = setInterval(() => {
                 count--;
                 if (count > 0) {
                     num.innerText = count;
                     haptics.light();
+                    if (sfx) sfx.playCountdownTick();
                 } else if (count === 0) {
                     num.innerText = '¡FUEGO!';
                     haptics.heavy();
+                    if (sfx) sfx.playCountdownTick();
                 } else {
                     clearInterval(interval);
                     overlay.classList.add('hidden');
@@ -770,14 +750,16 @@
 
         function updateHud() {
             const container = document.getElementById('hud-players');
+            if (!container || !gameState || !gameState.players) return;
             container.innerHTML = '';
-            if (!gameState || !gameState.players) return;
 
             Object.values(gameState.players).forEach(p => {
                 const chip = document.createElement('div');
-                chip.className = `flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] border whitespace-nowrap ${p.alive ? 'bg-slate-900 border-slate-700 text-white' : 'bg-red-950/60 border-red-500/40 text-slate-500 opacity-60'}`;
+                chip.className = `flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] border whitespace-nowrap ${p.alive ? 'bg-slate-900 border-slate-700 text-white' : 'bg-red-950/60 border-red-500/40 text-slate-500 opacity-60'}`;
+                
+                const miniAvatar = window.BomberEngine ? window.BomberEngine.getCharacterSVG(p.color, 18) : '';
                 chip.innerHTML = `
-                    <span>${p.alive ? '🤖' : '💀'}</span>
+                    <span class="inline-flex shrink-0">${miniAvatar}</span>
                     <span class="font-bold">${escapeHtml(p.nickname)}</span>
                     <span class="text-cyan-400 font-mono">(${p.kills}k)</span>
                 `;
@@ -791,7 +773,7 @@
             window.addEventListener('keydown', (e) => {
                 if (!gameState || currentRoom.status !== 'playing') return;
                 const now = performance.now();
-                if (now - lastMoveTime < 100) return;
+                if (now - lastMoveTime < 90) return;
 
                 let dir = null;
                 if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') dir = 'up';
@@ -845,6 +827,7 @@
 
             // Turn player face towards direction
             me.direction = direction;
+            me.isMoving = true;
 
             if (canMoveTo(nextX, nextY)) {
                 // Instantly update on local screen (0ms latency!)
@@ -855,7 +838,7 @@
                 const puKey = `${nextX}_${nextY}`;
                 if (gameState.powerups && gameState.powerups[puKey]) {
                     delete gameState.powerups[puKey];
-                    sfx.playPowerup();
+                    if (sfx) sfx.playPowerup();
                     haptics.heavy();
                 }
 
@@ -884,7 +867,7 @@
                     if (holdInterval) clearInterval(holdInterval);
                     holdInterval = setInterval(() => {
                         predictAndMove(dir);
-                    }, 130);
+                    }, 120);
                 };
 
                 const endPress = (e) => {
@@ -969,6 +952,9 @@
             const me = gameState.players[CURRENT_PLAYER_ID];
             if (!me || !me.alive) return;
 
+            me.isPlacingBomb = true;
+            setTimeout(() => { me.isPlacingBomb = false; }, 180);
+
             try {
                 const res = await fetch(`/api/rooms/${ROOM_CODE}/bomb`, {
                     method: 'POST',
@@ -978,7 +964,7 @@
                 if (data && data.success && data.bomb) {
                     data.bomb.local_planted_at = performance.now();
                     gameState.bombs[data.bomb.id] = data.bomb;
-                    sfx.playBombDrop();
+                    if (sfx) sfx.playBombDrop();
                 }
             } catch (err) {
                 console.error(err);
@@ -1049,48 +1035,48 @@
             const title = document.getElementById('gameover-title');
             const subtitle = document.getElementById('gameover-subtitle');
             const stats = document.getElementById('gameover-stats');
+            const podium = document.getElementById('gameover-avatar-podium');
 
             modal.classList.remove('hidden');
 
             if (data.winner_id && gameState && gameState.players[data.winner_id]) {
                 const winner = gameState.players[data.winner_id];
                 title.innerText = '¡VICTORIA!';
-                title.className = 'arcade-font text-3xl sm:text-5xl font-black text-yellow-400 mb-1';
+                title.className = 'arcade-font text-3xl sm:text-5xl font-black text-amber-400 mb-1';
                 subtitle.innerText = `${winner.nickname} es el Campeón de la Arena`;
+                if (podium && window.BomberEngine) {
+                    podium.innerHTML = window.BomberEngine.getCharacterSVG(winner.color, 84);
+                }
             } else {
                 title.innerText = '¡EMPATE!';
                 title.className = 'arcade-font text-3xl sm:text-5xl font-black text-slate-300 mb-1';
-                subtitle.innerText = 'Ningún jugador sobrevivió a la detonación';
+                subtitle.innerText = 'Ningún combatiente sobrevivió a la detonación';
+                if (podium) podium.innerHTML = '';
             }
 
-            stats.innerHTML = '<div class="font-bold text-[10px] uppercase text-slate-400 mb-2 border-b border-slate-700 pb-1 flex justify-between"><span>Jugador</span><span>Bajas / Bombas</span></div>';
+            stats.innerHTML = '<div class="font-bold text-[10px] uppercase text-slate-400 mb-2 border-b border-slate-700 pb-1 flex justify-between"><span>Combatiente</span><span>Bajas / Bombas</span></div>';
             if (data.players) {
                 Object.values(data.players).forEach(p => {
                     const row = document.createElement('div');
-                    row.className = 'flex justify-between py-1 border-b border-slate-800 text-slate-300';
-                    row.innerHTML = `<span>${p.alive ? '👑' : '💀'} ${escapeHtml(p.nickname)}</span><span class="font-mono text-cyan-400">${p.kills} bajas &bull; ${p.bombs_placed} bombas</span>`;
+                    row.className = 'flex justify-between items-center py-1.5 border-b border-slate-800 text-slate-300';
+                    const avatarMini = window.BomberEngine ? window.BomberEngine.getCharacterSVG(p.color, 24) : '';
+                    row.innerHTML = `
+                        <div class="flex items-center gap-2">
+                            <span>${avatarMini}</span>
+                            <span class="font-bold">${p.alive ? '👑' : '💀'} ${escapeHtml(p.nickname)}</span>
+                        </div>
+                        <span class="font-mono text-cyan-400 font-semibold">${p.kills} bajas &bull; ${p.bombs_placed} bombas</span>
+                    `;
                     stats.appendChild(row);
                 });
             }
-        }
 
-        // Particle System
-        function spawnExplosionParticles(x, y, color) {
-            for (let i = 0; i < 16; i++) {
-                const angle = Math.random() * Math.PI * 2;
-                const speed = Math.random() * 4 + 2;
-                particles.push({
-                    x, y,
-                    vx: Math.cos(angle) * speed,
-                    vy: Math.sin(angle) * speed,
-                    color,
-                    life: 1.0,
-                    size: Math.random() * 4 + 3,
-                });
+            if (window.lucide && window.lucide.createIcons) {
+                window.lucide.createIcons();
             }
         }
 
-        // Canvas Rendering Engine
+        // Canvas Rendering Loop via Modular GameRenderer
         let animFrameId = null;
         function startGameLoop() {
             startTimer();
@@ -1099,188 +1085,12 @@
 
             function loop() {
                 checkActiveBombs();
-                render();
+                if (gameRenderer) {
+                    gameRenderer.render(gameState, CURRENT_PLAYER_ID, performance.now() / 1000);
+                }
                 animFrameId = requestAnimationFrame(loop);
             }
             loop();
-        }
-
-        function render() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            if (!gameState || !gameState.grid) return;
-
-            const grid = gameState.grid;
-            const rows = grid.length;
-            const cols = grid[0].length;
-
-            // 1. Draw Grid Tiles
-            for (let r = 0; r < rows; r++) {
-                for (let c = 0; c < cols; c++) {
-                    const x = c * TILE_SIZE;
-                    const y = r * TILE_SIZE;
-                    const cell = grid[r][c];
-
-                    if (cell === 1) {
-                        // Outer Wall or Pillar
-                        ctx.fillStyle = '#0f172a';
-                        ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-                        ctx.strokeStyle = '#00f0ff';
-                        ctx.lineWidth = 1;
-                        ctx.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-                        ctx.fillStyle = '#1e293b';
-                        ctx.fillRect(x + 6, y + 6, TILE_SIZE - 12, TILE_SIZE - 12);
-                    } else if (cell === 2) {
-                        // Destructible Energy Block
-                        ctx.fillStyle = '#18181b';
-                        ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-                        ctx.strokeStyle = '#ff007f';
-                        ctx.lineWidth = 1.5;
-                        ctx.strokeRect(x + 3, y + 3, TILE_SIZE - 6, TILE_SIZE - 6);
-                        ctx.fillStyle = '#27272a';
-                        ctx.fillRect(x + 7, y + 7, TILE_SIZE - 14, TILE_SIZE - 14);
-                    } else {
-                        // Floor
-                        ctx.fillStyle = '#090d16';
-                        ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
-                        ctx.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
-                    }
-                }
-            }
-
-            // 2. Draw Power-ups
-            if (gameState.powerups) {
-                Object.entries(gameState.powerups).forEach(([key, type]) => {
-                    const [px, py] = key.split('_').map(Number);
-                    const cx = px * TILE_SIZE + 25;
-                    const cy = py * TILE_SIZE + 25;
-
-                    ctx.save();
-                    ctx.shadowBlur = 10;
-                    if (type === 'speed') {
-                        ctx.shadowColor = '#00f0ff';
-                        ctx.fillStyle = '#00f0ff';
-                        ctx.font = '22px sans-serif';
-                        ctx.fillText('⚡', cx - 10, cy + 8);
-                    } else if (type === 'bomb') {
-                        ctx.shadowColor = '#ff007f';
-                        ctx.fillStyle = '#ff007f';
-                        ctx.font = '22px sans-serif';
-                        ctx.fillText('💣', cx - 11, cy + 8);
-                    } else if (type === 'fire') {
-                        ctx.shadowColor = '#ffe600';
-                        ctx.fillStyle = '#ffe600';
-                        ctx.font = '22px sans-serif';
-                        ctx.fillText('🔥', cx - 10, cy + 8);
-                    }
-                    ctx.restore();
-                });
-            }
-
-            // 3. Draw Bombs
-            if (gameState.bombs) {
-                const now = performance.now();
-                const pulse = Math.sin(now / 150) * 3;
-
-                Object.values(gameState.bombs).forEach(b => {
-                    const bx = b.x * TILE_SIZE + 25;
-                    const by = b.y * TILE_SIZE + 25;
-
-                    ctx.save();
-                    ctx.shadowColor = '#ff007f';
-                    ctx.shadowBlur = 15;
-                    ctx.beginPath();
-                    ctx.arc(bx, by, 16 + pulse, 0, Math.PI * 2);
-                    ctx.fillStyle = '#18181b';
-                    ctx.fill();
-                    ctx.strokeStyle = '#ff007f';
-                    ctx.lineWidth = 2.5;
-                    ctx.stroke();
-
-                    // Fuse spark
-                    ctx.beginPath();
-                    ctx.arc(bx + 8, by - 12, 3, 0, Math.PI * 2);
-                    ctx.fillStyle = '#ffe600';
-                    ctx.fill();
-                    ctx.restore();
-                });
-            }
-
-            // 4. Draw Particles
-            for (let i = particles.length - 1; i >= 0; i--) {
-                const p = particles[i];
-                p.x += p.vx;
-                p.y += p.vy;
-                p.life -= 0.035;
-
-                if (p.life <= 0) {
-                    particles.splice(i, 1);
-                    continue;
-                }
-
-                ctx.save();
-                ctx.globalAlpha = p.life;
-                ctx.fillStyle = p.color;
-                ctx.shadowColor = p.color;
-                ctx.shadowBlur = 8;
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
-            }
-
-            // 5. Draw Players
-            if (gameState.players) {
-                const colorPalettes = {
-                    'neon-blue': { fill: '#00f0ff', glow: 'rgba(0, 240, 255, 0.8)' },
-                    'neon-pink': { fill: '#ff007f', glow: 'rgba(255, 0, 127, 0.8)' },
-                    'neon-yellow': { fill: '#ffe600', glow: 'rgba(255, 230, 0, 0.8)' },
-                    'neon-green': { fill: '#00ff66', glow: 'rgba(0, 255, 102, 0.8)' },
-                };
-
-                Object.values(gameState.players).forEach(p => {
-                    if (!p.alive) return;
-
-                    const px = p.x * TILE_SIZE + 25;
-                    const py = p.y * TILE_SIZE + 25;
-                    const col = colorPalettes[p.color] || colorPalettes['neon-blue'];
-
-                    ctx.save();
-                    // Player Aura
-                    ctx.shadowColor = col.glow;
-                    ctx.shadowBlur = 12;
-
-                    // Body
-                    ctx.beginPath();
-                    ctx.arc(px, py, 17, 0, Math.PI * 2);
-                    ctx.fillStyle = col.fill;
-                    ctx.fill();
-                    ctx.strokeStyle = '#ffffff';
-                    ctx.lineWidth = 2;
-                    ctx.stroke();
-
-                    // Visor / Face direction
-                    ctx.fillStyle = '#060814';
-                    let eyeX = px, eyeY = py;
-                    if (p.direction === 'up') eyeY -= 6;
-                    if (p.direction === 'down') eyeY += 6;
-                    if (p.direction === 'left') eyeX -= 6;
-                    if (p.direction === 'right') eyeX += 6;
-
-                    ctx.beginPath();
-                    ctx.arc(eyeX, eyeY, 5, 0, Math.PI * 2);
-                    ctx.fill();
-
-                    // Overhead Nickname
-                    ctx.font = 'bold 11px sans-serif';
-                    ctx.fillStyle = '#ffffff';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(p.nickname, px, py - 22);
-
-                    ctx.restore();
-                });
-            }
         }
 
         function escapeHtml(text) {
