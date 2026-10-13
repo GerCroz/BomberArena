@@ -40,7 +40,7 @@ class GameRule extends Model
             'countdown_seconds' => 3,
             'end_on_last_survivor' => true,
             'draw_on_simultaneous_elimination' => true,
-            'timeout_result' => 'draw', // 'draw' | 'most_kills'
+            'timeout_result' => 'most_bombs',
             'allow_rematch' => true,
 
             // B. Bombas y explosiones

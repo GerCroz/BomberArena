@@ -184,7 +184,7 @@
                             <div>
                                 <label class="block font-bold text-slate-300 mb-1">Resultado al Agotar el Tiempo</label>
                                 <select name="timeout_result" class="w-full bg-slate-900 border border-slate-700 focus:border-cyan-400 rounded-xl px-3 py-2 text-white">
-                                    <option value="draw" {{ ($activeRules['timeout_result'] ?? '') === 'draw' ? 'selected' : '' }}>Empate obligatorio (Default)</option>
+                                    <option value="most_bombs" {{ in_array($activeRules['timeout_result'] ?? 'most_bombs', ['draw', 'most_bombs'], true) ? 'selected' : '' }}>Mayor cantidad de bombas (si igualan: Empate)</option>
                                     <option value="most_kills" {{ ($activeRules['timeout_result'] ?? '') === 'most_kills' ? 'selected' : '' }}>Mayor cantidad de bajas (si hay empate en bajas: Empate)</option>
                                 </select>
                             </div>

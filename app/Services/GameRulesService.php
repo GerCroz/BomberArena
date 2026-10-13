@@ -92,7 +92,7 @@ class GameRulesService
         $merged['countdown_seconds'] = max(0, min(10, (int) ($merged['countdown_seconds'] ?? 3)));
         $merged['end_on_last_survivor'] = (bool) ($merged['end_on_last_survivor'] ?? true);
         $merged['draw_on_simultaneous_elimination'] = (bool) ($merged['draw_on_simultaneous_elimination'] ?? true);
-        $merged['timeout_result'] = in_array($merged['timeout_result'] ?? '', ['draw', 'most_kills'], true) ? $merged['timeout_result'] : 'draw';
+        $merged['timeout_result'] = in_array($merged['timeout_result'] ?? '', ['most_bombs', 'most_kills'], true) ? $merged['timeout_result'] : 'most_bombs';
         $merged['allow_rematch'] = (bool) ($merged['allow_rematch'] ?? true);
 
         $merged['bomb_fuse_ms'] = max(500, min(10000, (int) ($merged['bomb_fuse_ms'] ?? 2000)));

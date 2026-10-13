@@ -637,6 +637,10 @@ class RoomService
         }
 
         // Check if rematch is allowed in room rules
+        if (empty($previousState['winner_id']) || $previousState['winner_id'] === $playerId) {
+            return ['success' => false, 'error' => 'Solo los perdedores pueden solicitar revancha'];
+        }
+
         $rules = $room->rules_snapshot ?? $this->rulesService->getActiveRules();
         if (isset($rules['allow_rematch']) && ! $rules['allow_rematch']) {
             return ['success' => false, 'error' => 'La revancha no está permitida según las reglas de la sala'];

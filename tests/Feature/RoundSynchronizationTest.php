@@ -86,6 +86,76 @@ class RoundSynchronizationTest extends TestCase
         Event::assertNotDispatched(GameRoomEvent::class);
     }
 
+    public function test_returns_422_for_a_rematch_requested_by_the_winner(): void
+    {
+        [$room, $state] = $this->createPlayingRoom();
+        $state['players']['guest_player']['alive'] = false;
+        Cache::put("arena_state_{$room->code}", $state, 600);
+        app(RoomService::class)->tickRoom($room->code);
+        $finishedState = Cache::get("arena_state_{$room->code}");
+        Event::fake([GameRoomEvent::class]);
+
+        $response = $this->withHeader('X-Player-ID', 'host_player')->postJson("/api/rooms/{$room->code}/rematch", ['round_id' => $state['round_id']]);
+
+        $response->assertUnprocessable()->assertJsonPath('error', 'Solo los perdedores pueden solicitar revancha');
+        $this->assertSame($finishedState, Cache::get("arena_state_{$room->code}"));
+        $this->assertDatabaseHas('rooms', ['id' => $room->id, 'status' => Room::STATE_FINISHED, 'winner_player_id' => 'host_player']);
+        Event::assertNotDispatched(GameRoomEvent::class);
+    }
+
+    public function test_a_loser_can_request_rematch_without_being_the_host(): void
+    {
+        [$room, $state] = $this->createPlayingRoom();
+        $state['players']['guest_player']['alive'] = false;
+        Cache::put("arena_state_{$room->code}", $state, 600);
+        app(RoomService::class)->tickRoom($room->code);
+        Event::fake([GameRoomEvent::class]);
+
+        $response = $this->withHeader('X-Player-ID', 'guest_player')->postJson("/api/rooms/{$room->code}/rematch", ['round_id' => $state['round_id']]);
+
+        $response->assertOk()->assertJsonPath('state.players.guest_player.alive', true)->assertJsonPath('state.is_game_over', false);
+        $this->assertNotSame($state['round_id'], $response->json('state.round_id'));
+        $this->assertDatabaseHas('rooms', ['id' => $room->id, 'status' => Room::STATE_PLAYING]);
+        Event::assertDispatched(GameRoomEvent::class, fn (GameRoomEvent $event): bool => $event->type === 'game_started');
+    }
+
+    #[TestWith([4, 1, 'host_player', 'most_bombs'])]
+    #[TestWith([1, 4, 'guest_player', 'draw'])]
+    #[TestWith([4, 4, null, 'most_bombs'])]
+    public function test_timeout_uses_bombs_placed_by_survivors(int $hostBombs, int $guestBombs, ?string $winnerId, string $policy): void
+    {
+        [$room, $state] = $this->createPlayingRoom();
+        $state['started_at'] = 1.0;
+        $state['rules']['timeout_result'] = $policy;
+        $state['players']['host_player']['bombs_placed'] = $hostBombs;
+        $state['players']['guest_player']['bombs_placed'] = $guestBombs;
+        $state['players']['eliminated_player'] = array_merge($state['players']['host_player'], ['id' => 'eliminated_player', 'alive' => false, 'bombs_placed' => 20]);
+        Cache::put("arena_state_{$room->code}", $state, 600);
+        Event::fake([GameRoomEvent::class]);
+
+        $response = $this->postJson("/api/rooms/{$room->code}/tick", ['round_id' => $state['round_id']]);
+
+        $response->assertOk()->assertJsonPath('winner_id', $winnerId)->assertJsonPath('finish_reason', Room::REASON_TIME_EXPIRED);
+        $this->assertDatabaseHas('rooms', ['id' => $room->id, 'winner_player_id' => $winnerId, 'status' => Room::STATE_FINISHED]);
+        Event::assertDispatched(GameRoomEvent::class, fn (GameRoomEvent $event): bool => $event->type === 'game_over' && $event->data['winner_id'] === $winnerId);
+    }
+
+    public function test_a_draw_has_no_loser_who_can_request_rematch(): void
+    {
+        [$room, $state] = $this->createPlayingRoom();
+        $state['started_at'] = 1.0;
+        Cache::put("arena_state_{$room->code}", $state, 600);
+        app(RoomService::class)->tickRoom($room->code);
+        $finishedState = Cache::get("arena_state_{$room->code}");
+        Event::fake([GameRoomEvent::class]);
+
+        $response = $this->withHeader('X-Player-ID', 'host_player')->postJson("/api/rooms/{$room->code}/rematch", ['round_id' => $state['round_id']]);
+
+        $response->assertUnprocessable()->assertJsonPath('error', 'Solo los perdedores pueden solicitar revancha');
+        $this->assertSame($finishedState, Cache::get("arena_state_{$room->code}"));
+        Event::assertNotDispatched(GameRoomEvent::class);
+    }
+
     public function test_bomb_cannot_detonate_before_its_server_fuse_expires(): void
     {
         $this->freezeTime();

@@ -113,7 +113,7 @@ class AdminRulesController extends Controller
             'countdown_seconds' => ['required', 'integer', 'min:0', 'max:10'],
             'end_on_last_survivor' => ['nullable', 'boolean'],
             'draw_on_simultaneous_elimination' => ['nullable', 'boolean'],
-            'timeout_result' => ['required', 'string', 'in:draw,most_kills'],
+            'timeout_result' => ['required', 'string', 'in:most_bombs,most_kills'],
             'allow_rematch' => ['nullable', 'boolean'],
 
             'bomb_fuse_ms' => ['required', 'integer', 'min:500', 'max:10000'],

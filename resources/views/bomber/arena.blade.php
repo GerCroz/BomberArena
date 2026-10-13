@@ -314,7 +314,7 @@
                     </div>
 
                     <div class="flex gap-3">
-                        <button type="button" onclick="requestRematch()" class="arcade-font px-5 py-2.5 rounded-xl bg-cyan-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-cyan-400/40 hover:bg-cyan-300 flex items-center gap-2 cursor-pointer">
+                        <button type="button" id="rematch-button" onclick="requestRematch()" class="arcade-font px-5 py-2.5 rounded-xl bg-cyan-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-cyan-400/40 hover:bg-cyan-300 flex items-center gap-2 cursor-pointer hidden">
                             <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
                             <span>REVANCHA</span>
                         </button>
@@ -729,11 +729,7 @@
                     currentRoom.status = data.finish_reason === 'ADMIN_CANCELLED' ? 'cancelled' : 'finished';
                     stopRound();
                     updateHud();
-                    showGameOverModal(data);
-                    if (data.winner_id) {
-                        if (sfx) sfx.playVictory();
-                        haptics.victory();
-                    }
+                    finishRoundPresentation(data);
                     break;
             }
         }
@@ -1252,7 +1248,7 @@
         }
 
         async function requestRematch() {
-            if (rematchInFlight) return;
+            if (rematchInFlight || !canRequestRematch()) return;
             rematchInFlight = true;
             haptics.heavy();
             try {
@@ -1276,6 +1272,37 @@
             }
         }
 
+        function canRequestRematch() {
+            return gameState?.is_game_over && !!gameState.winner_id
+                && gameState.winner_id !== CURRENT_PLAYER_ID
+                && !!gameState.players?.[CURRENT_PLAYER_ID]
+                && gameState.rules?.allow_rematch !== false;
+        }
+
+        function finishRoundPresentation(data) {
+            const generation = roundGeneration;
+            const waitForExplosion = ['LAST_PLAYER_ALIVE', 'ALL_PLAYERS_ELIMINATED'].includes(data.finish_reason);
+            const revealAfter = performance.now() + (waitForExplosion && gameRenderer ? 550 : 0);
+            const present = () => {
+                if (generation !== roundGeneration) return;
+                if (gameRenderer) {
+                    gameRenderer.render(gameState, CURRENT_PLAYER_ID, performance.now() / 1000, getCurrentServerTime());
+                }
+                const explosionsActive = gameRenderer?.activeExplosions?.some(effect => !effect.isFinished());
+                if (performance.now() < revealAfter || explosionsActive) {
+                    animFrameId = requestAnimationFrame(present);
+                    return;
+                }
+                animFrameId = null;
+                showGameOverModal(data);
+                if (data.winner_id === CURRENT_PLAYER_ID) {
+                    if (sfx) sfx.playVictory();
+                    haptics.victory();
+                }
+            };
+            present();
+        }
+
         function showGameOverModal(data) {
             const modal = document.getElementById('gameover-modal');
             const title = document.getElementById('gameover-title');
@@ -1284,21 +1311,31 @@
             const podium = document.getElementById('gameover-avatar-podium');
 
             modal.classList.remove('hidden');
+            document.getElementById('rematch-button').classList.toggle('hidden', !canRequestRematch());
 
             const reason = data.finish_reason || 'UNKNOWN';
 
             if (data.winner_id && gameState && gameState.players[data.winner_id]) {
                 const winner = gameState.players[data.winner_id];
-                title.innerText = '¡VICTORIA!';
-                title.className = 'arcade-font text-3xl sm:text-5xl font-black text-amber-400 mb-1';
-                subtitle.innerText = `${winner.nickname} es el Campeón de la Arena`;
+                const isWinner = data.winner_id === CURRENT_PLAYER_ID;
+                title.innerText = isWinner ? '¡VICTORIA!' : 'DERROTA';
+                title.className = `arcade-font text-3xl sm:text-5xl font-black mb-1 ${isWinner ? 'text-amber-400' : 'text-rose-400'}`;
+                subtitle.innerText = isWinner ? '¡Ganaste la ronda!' : `${winner.nickname} ganó la ronda. Podés solicitar revancha.`;
+                if (reason === 'TIME_EXPIRED') {
+                    const criterion = gameState.rules?.timeout_result === 'most_kills' ? 'bajas' : 'bombas colocadas';
+                    subtitle.innerText = isWinner
+                        ? `¡Ganaste por mayor cantidad de ${criterion}!`
+                        : `${winner.nickname} ganó por mayor cantidad de ${criterion}.`;
+                }
                 if (podium && window.BomberEngine) {
                     podium.innerHTML = window.BomberEngine.getCharacterSVG(winner.color, 84);
                 }
             } else if (reason === 'TIME_EXPIRED') {
                 title.innerText = '¡TIEMPO AGOTADO!';
                 title.className = 'arcade-font text-3xl sm:text-5xl font-black text-amber-400 mb-1';
-                subtitle.innerText = 'Se agotó el tiempo de la ronda sin un único vencedor (Empate)';
+                subtitle.innerText = gameState.rules?.timeout_result === 'most_kills'
+                    ? 'Tiempo agotado: empate en la mayor cantidad de bajas.'
+                    : 'Tiempo agotado: empate en la mayor cantidad de bombas colocadas.';
                 if (podium) podium.innerHTML = '';
             } else if (reason === 'ADMIN_CANCELLED') {
                 title.innerText = 'PARTIDA CANCELADA';
@@ -1321,7 +1358,7 @@
                     row.innerHTML = `
                         <div class="flex items-center gap-2">
                             <span>${avatarMini}</span>
-                            <span class="font-bold">${p.alive ? '👑' : '💀'} ${escapeHtml(p.nickname)}</span>
+                            <span class="font-bold">${p.id === data.winner_id ? '👑' : (p.alive ? '' : '💀')} ${escapeHtml(p.nickname)}</span>
                         </div>
                         <span class="font-mono text-cyan-400 font-semibold">${p.kills} bajas &bull; ${p.bombs_placed} bombas</span>
                     `;

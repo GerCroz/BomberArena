@@ -62,6 +62,8 @@ function createClient(fetchResponse = async () => ({ ok: true, json: async () =>
     const calls = [];
     const alerts = [];
     const intervals = new Map();
+    const frames = new Map();
+    let now = 500;
     let nextId = 1;
     const state = {
         round_id: 'old_round', started_at: 100, version: 90, duration_seconds: 180,
@@ -71,7 +73,7 @@ function createClient(fetchResponse = async () => ({ ok: true, json: async () =>
     };
     const context = vm.createContext({
         initialState: state, initialRoom: { status: 'playing', players: [] }, console,
-        Date, performance: { now: () => 500 },
+        Date, performance: { now: () => now },
         AbortController, AbortSignal,
         haptics: { heavy() {}, light() {}, explosion() {}, victory() {} },
         alert: message => alerts.push(message),
@@ -80,7 +82,14 @@ function createClient(fetchResponse = async () => ({ ok: true, json: async () =>
         document: {
             addEventListener() {},
             getElementById(id) {
-                if (!nodes.has(id)) nodes.set(id, { classList: { add() {}, remove() {} }, appendChild() {}, innerHTML: '' });
+                if (!nodes.has(id)) {
+                    const classes = new Set(['hidden']);
+                    nodes.set(id, { classList: {
+                        add: name => classes.add(name), remove: name => classes.delete(name),
+                        contains: name => classes.has(name),
+                        toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name),
+                    }, appendChild() {}, innerHTML: '' });
+                }
                 return nodes.get(id);
             },
             createElement: () => ({ innerHTML: '', innerText: '', appendChild() {} }),
@@ -88,10 +97,13 @@ function createClient(fetchResponse = async () => ({ ok: true, json: async () =>
         setInterval: callback => { const id = nextId++; intervals.set(id, callback); return id; },
         clearInterval: id => intervals.delete(id),
         setTimeout: () => nextId++,
-        requestAnimationFrame: () => nextId++, cancelAnimationFrame() {},
+        requestAnimationFrame: callback => { const id = nextId++; frames.set(id, callback); return id; },
+        cancelAnimationFrame: id => frames.delete(id),
     });
     vm.runInContext(script, context);
-    return { context, calls, alerts, intervals, listeners, run: source => vm.runInContext(source, context) };
+    return { context, calls, alerts, intervals, listeners, nodes,
+        frame(time) { now = time; const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback()); },
+        run: source => vm.runInContext(source, context) };
 }
 
 function startRematch(client) {
@@ -207,6 +219,7 @@ test('game over stops timers and further bomb inputs', () => {
 
 test('rematch errors are visible and permit another attempt', async () => {
     const client = createClient(async () => ({ ok: false, json: async () => ({ success: false, error: 'Servidor ocupado, reintenta' }) }));
+    client.run("gameState.is_game_over = true; gameState.winner_id = 'other';");
 
     await client.run('requestRematch()');
 
@@ -297,5 +310,56 @@ test('a finished client discovers a rematch through room state if the start even
 
     assert.equal(client.run('gameState.round_id'), 'new_round');
     assert.equal(client.run('gameState.is_game_over'), false);
+    assert.equal(client.run('currentRoom.status'), 'playing');
+});
+
+for (const winner of ['180', 'other', null]) {
+    test(`result distinguishes victory, defeat and draw for winner ${winner}`, async () => {
+        const client = createClient(async () => ({ ok: false, json: async () => ({ success: false, error: 'Servidor ocupado, reintenta' }) }));
+        client.run('let victories = 0; sfx = { playVictory() { victories++; } };');
+
+        client.run(`handleIncomingEvent({ type: 'game_over', data: { round_id: 'old_round', winner_id: ${JSON.stringify(winner)}, finish_reason: 'TIME_EXPIRED' } });`);
+        await client.run('requestRematch()');
+
+        assert.equal(client.nodes.get('gameover-title').innerText, winner === '180' ? '¡VICTORIA!' : (winner ? 'DERROTA' : '¡TIEMPO AGOTADO!'));
+        assert.equal(client.run('victories'), winner === '180' ? 1 : 0);
+        assert.equal(client.nodes.get('rematch-button').classList.contains('hidden'), winner !== 'other');
+        assert.equal(client.calls.length, winner === 'other' ? 1 : 0);
+    });
+}
+
+test('the final explosion finishes before the result even if its event arrives after game over', () => {
+    const client = createClient();
+    client.run(`let renderedFrames = 0;
+        gameRenderer = { activeExplosions: [],
+            render() { renderedFrames++; },
+            addExplosion() { const start = performance.now(); this.activeExplosions.push({ isFinished: () => performance.now() - start >= 450 }); }
+        };`);
+
+    client.run(`handleIncomingEvent({ type: 'game_over', data: { round_id: 'old_round', winner_id: '180', finish_reason: 'LAST_PLAYER_ALIVE' } });`);
+    client.frame(700);
+    client.run(`handleIncomingEvent({ type: 'bomb_exploded', data: { round_id: 'old_round', event_id: 'final_explosion', root_bomb_id: 'final_bomb', eliminated_players: [{ player_id: 'other' }], explosion_tiles: [{ x: 11, y: 9 }] } });`);
+    client.frame(1100);
+
+    assert.equal(client.nodes.has('gameover-title'), false);
+    assert.equal(client.run('gameState.players.other.alive'), false);
+    assert.ok(client.run('renderedFrames') >= 3);
+    assert.equal(client.run('pendingActionQueue.length'), 0);
+
+    client.frame(1200);
+
+    assert.equal(client.nodes.get('gameover-title').innerText, '¡VICTORIA!');
+    assert.equal(client.run('animFrameId'), null);
+});
+
+test('a new round cancels the pending result of the previous explosion', () => {
+    const client = createClient();
+    client.run('gameRenderer = { activeExplosions: [], render() {}, invalidateBoard() {} };');
+    client.run(`handleIncomingEvent({ type: 'game_over', data: { round_id: 'old_round', winner_id: 'other', finish_reason: 'LAST_PLAYER_ALIVE' } });`);
+
+    startRematch(client);
+    client.frame(1500);
+
+    assert.equal(client.nodes.get('gameover-modal').classList.contains('hidden'), true);
     assert.equal(client.run('currentRoom.status'), 'playing');
 });

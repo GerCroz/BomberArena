@@ -514,7 +514,7 @@ class BomberGameEngine
      * Evaluates:
      * - Case A: Only 1 survivor remaining (from >= 2 initial players).
      * - Case B: All players eliminated simultaneously (draw).
-     * - Case C: Time expired (configured result: draw or most_kills).
+     * - Case C: Time expired (most bombs, or most kills when configured).
      * - Case D: >= 2 players alive -> match MUST continue!
      */
     public function evaluateMatchOutcome(array &$state, ?float $currentTime = null): bool
@@ -556,15 +556,15 @@ class BomberGameEngine
 
         if ($elapsed >= $durationSeconds) {
             $state['is_game_over'] = true;
-            $timeoutPolicy = $rules['timeout_result'] ?? 'draw';
+            $timeoutPolicy = $rules['timeout_result'] ?? 'most_bombs';
+            $scoreField = $timeoutPolicy === 'most_kills' ? 'kills' : 'bombs_placed';
 
-            if ($timeoutPolicy === 'most_kills' && ! empty($alivePlayers)) {
-                // Pick living player with highest kills
-                uasort($alivePlayers, fn ($a, $b) => ($b['kills'] ?? 0) <=> ($a['kills'] ?? 0));
+            if (! empty($alivePlayers)) {
+                uasort($alivePlayers, fn ($a, $b) => ($b[$scoreField] ?? 0) <=> ($a[$scoreField] ?? 0));
                 $first = reset($alivePlayers);
                 $second = next($alivePlayers);
-                if ($second && ($first['kills'] ?? 0) === ($second['kills'] ?? 0)) {
-                    $state['winner_id'] = null; // Tie in kills -> draw
+                if ($second && ($first[$scoreField] ?? 0) === ($second[$scoreField] ?? 0)) {
+                    $state['winner_id'] = null;
                 } else {
                     $state['winner_id'] = $first['id'];
                 }
