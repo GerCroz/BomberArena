@@ -528,9 +528,20 @@
                     break;
                 case 'player_moved':
                     if (gameState && gameState.players[data.player_id]) {
-                        gameState.players[data.player_id].x = data.x;
-                        gameState.players[data.player_id].y = data.y;
-                        gameState.players[data.player_id].direction = data.direction;
+                        // If it is another player, update them immediately
+                        if (data.player_id !== CURRENT_PLAYER_ID) {
+                            gameState.players[data.player_id].x = data.x;
+                            gameState.players[data.player_id].y = data.y;
+                            gameState.players[data.player_id].direction = data.direction;
+                        } else {
+                            // Reconcile our own position if server corrected us
+                            const me = gameState.players[CURRENT_PLAYER_ID];
+                            if (me && (Math.abs(me.x - data.x) > 1 || Math.abs(me.y - data.y) > 1)) {
+                                me.x = data.x;
+                                me.y = data.y;
+                            }
+                        }
+
                         if (data.collected_powerup) {
                             sfx.playPowerup();
                             if (data.player_id === CURRENT_PLAYER_ID) {
@@ -780,12 +791,60 @@
                 if (dir) {
                     e.preventDefault();
                     lastMoveTime = now;
-                    sendMove(dir);
+                    predictAndMove(dir);
                 } else if (e.code === 'Space') {
                     e.preventDefault();
                     sendBomb();
                 }
             });
+        }
+
+        // Check if a tile can be stepped on locally
+        function canMoveTo(x, y) {
+            if (!gameState || !gameState.grid) return false;
+            if (x < 0 || x >= 13 || y < 0 || y >= 11) return false;
+            const tile = gameState.grid[y][x];
+            if (tile === 1 || tile === 2) return false; // wall or block
+            if (gameState.bombs) {
+                for (const b of Object.values(gameState.bombs)) {
+                    if (b.x === x && b.y === y) return false; // solid bomb
+                }
+            }
+            return true;
+        }
+
+        // Client-side prediction for instantaneous 0ms response
+        function predictAndMove(direction) {
+            if (!gameState || !gameState.players || currentRoom.status !== 'playing') return;
+            const me = gameState.players[CURRENT_PLAYER_ID];
+            if (!me || !me.alive) return;
+
+            let dx = 0, dy = 0;
+            if (direction === 'up') dy = -1;
+            else if (direction === 'down') dy = 1;
+            else if (direction === 'left') dx = -1;
+            else if (direction === 'right') dx = 1;
+
+            const nextX = me.x + dx;
+            const nextY = me.y + dy;
+
+            if (canMoveTo(nextX, nextY)) {
+                // Instantly update on local screen (0ms latency!)
+                me.x = nextX;
+                me.y = nextY;
+                me.direction = direction;
+
+                // Collect power-up immediately
+                const puKey = `${nextX}_${nextY}`;
+                if (gameState.powerups && gameState.powerups[puKey]) {
+                    delete gameState.powerups[puKey];
+                    sfx.playPowerup();
+                    haptics.heavy();
+                }
+            }
+
+            // Send authoritative command to server in the background
+            sendMove(direction);
         }
 
         // Ergonomic Mobile Touch Controls with Haptics and Hold-to-walk
@@ -803,12 +862,12 @@
                     e.stopPropagation();
                     btn.classList.add('is-active');
                     haptics.light();
-                    sendMove(dir);
+                    predictAndMove(dir);
 
                     if (holdInterval) clearInterval(holdInterval);
                     holdInterval = setInterval(() => {
-                        sendMove(dir);
-                    }, 140);
+                        predictAndMove(dir);
+                    }, 130);
                 };
 
                 const endPress = (e) => {
@@ -852,16 +911,24 @@
             }
         }
 
-        async function sendMove(direction) {
+        // Non-blocking fire-and-forget move dispatching with reconciliation
+        let activeMoveRequest = false;
+        function sendMove(direction) {
             try {
-                await fetch(`/api/rooms/${ROOM_CODE}/move`, {
+                fetch(`/api/rooms/${ROOM_CODE}/move`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
                     body: JSON.stringify({ direction })
-                });
-            } catch (err) {
-                console.error(err);
-            }
+                }).then(res => res.json()).then(data => {
+                    if (data && data.success && data.pos) {
+                        const me = gameState.players[CURRENT_PLAYER_ID];
+                        if (me && (Math.abs(me.x - data.pos.x) > 1 || Math.abs(me.y - data.pos.y) > 1)) {
+                            me.x = data.pos.x;
+                            me.y = data.pos.y;
+                        }
+                    }
+                }).catch(() => {});
+            } catch (err) {}
         }
 
         async function sendBomb() {

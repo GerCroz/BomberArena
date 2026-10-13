@@ -201,6 +201,7 @@ class RoomService
         ])->toArray();
 
         $initialState = $this->engine->createInitialState($records, $room->map_seed);
+        \Illuminate\Support\Facades\Cache::put("arena_state_{$room->code}", $initialState, 600);
 
         $room->update([
             'status' => 'playing',
@@ -226,16 +227,21 @@ class RoomService
     }
 
     /**
-     * Handle player move command.
+     * Handle player move command with ultra-fast in-memory state.
      */
     public function handleMove(string $code, string $playerId, string $direction): array
     {
-        $room = Room::where('code', strtoupper($code))->first();
-        if (!$room || $room->status !== 'playing') {
-            return ['success' => false, 'error' => 'Partida no activa'];
+        $cleanCode = strtoupper($code);
+        $state = \Illuminate\Support\Facades\Cache::get("arena_state_{$cleanCode}");
+
+        if (!$state) {
+            $room = Room::where('code', $cleanCode)->first();
+            if (!$room || $room->status !== 'playing') {
+                return ['success' => false, 'error' => 'Partida no activa'];
+            }
+            $state = $room->game_state;
         }
 
-        $state = $room->game_state;
         if (!$state) {
             return ['success' => false, 'error' => 'Estado no inicializado'];
         }
@@ -245,13 +251,11 @@ class RoomService
             return $result;
         }
 
-        $room->update([
-            'game_state' => $state,
-            'last_activity_at' => now(),
-        ]);
+        // Cache update is instantaneous (sub-millisecond)
+        \Illuminate\Support\Facades\Cache::put("arena_state_{$cleanCode}", $state, 600);
 
-        // Broadcast player moved
-        broadcast(new GameRoomEvent($room->code, 'player_moved', [
+        // Broadcast player moved to other players
+        broadcast(new GameRoomEvent($cleanCode, 'player_moved', [
             'player_id' => $playerId,
             'x' => $result['pos']['x'],
             'y' => $result['pos']['y'],
@@ -259,14 +263,6 @@ class RoomService
             'collected_powerup' => $result['collected_powerup'],
             'stats' => $result['player'],
         ]));
-
-        $this->telemetry->recordEvent(
-            $room->code,
-            'player_moved',
-            $result['player']['nickname'],
-            "arena.{$room->code}",
-            ['direction' => $direction, 'pos' => $result['pos']]
-        );
 
         return $result;
     }
@@ -276,12 +272,18 @@ class RoomService
      */
     public function placeBomb(string $code, string $playerId): array
     {
-        $room = Room::where('code', strtoupper($code))->first();
+        $cleanCode = strtoupper($code);
+        $state = \Illuminate\Support\Facades\Cache::get("arena_state_{$cleanCode}");
+
+        $room = Room::where('code', $cleanCode)->first();
         if (!$room || $room->status !== 'playing') {
             return ['success' => false, 'error' => 'Partida no activa'];
         }
 
-        $state = $room->game_state;
+        if (!$state) {
+            $state = $room->game_state;
+        }
+
         if (!$state) {
             return ['success' => false, 'error' => 'Estado no inicializado'];
         }
@@ -291,6 +293,7 @@ class RoomService
             return $result;
         }
 
+        \Illuminate\Support\Facades\Cache::put("arena_state_{$cleanCode}", $state, 600);
         $room->update([
             'game_state' => $state,
             'last_activity_at' => now(),
@@ -316,12 +319,18 @@ class RoomService
      */
     public function detonateBomb(string $code, string $bombId): array
     {
-        $room = Room::where('code', strtoupper($code))->first();
+        $cleanCode = strtoupper($code);
+        $state = \Illuminate\Support\Facades\Cache::get("arena_state_{$cleanCode}");
+
+        $room = Room::where('code', $cleanCode)->first();
         if (!$room || $room->status !== 'playing') {
             return ['success' => false, 'error' => 'Partida no activa'];
         }
 
-        $state = $room->game_state;
+        if (!$state) {
+            $state = $room->game_state;
+        }
+
         if (!$state) {
             return ['success' => false, 'error' => 'Estado no inicializado'];
         }
@@ -330,6 +339,8 @@ class RoomService
         if (!$result['success']) {
             return $result;
         }
+
+        \Illuminate\Support\Facades\Cache::put("arena_state_{$cleanCode}", $state, 600);
 
         if ($result['is_game_over']) {
             $room->status = 'finished';

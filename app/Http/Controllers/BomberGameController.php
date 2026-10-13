@@ -104,10 +104,13 @@ class BomberGameController extends Controller
             return response()->json(['error' => 'Sala no encontrada'], 404);
         }
 
+        $cleanCode = strtoupper($code);
+        $activeState = \Illuminate\Support\Facades\Cache::get("arena_state_{$cleanCode}") ?? $room->game_state;
+
         return response()->json([
             'room' => $room,
             'players' => $room->players,
-            'game_state' => $room->game_state,
+            'game_state' => $activeState,
         ]);
     }
 
