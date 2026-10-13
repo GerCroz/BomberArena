@@ -2,25 +2,33 @@
 
 namespace App\Services;
 
+use App\Events\GameRoomEvent;
+use App\Models\GameMatchAudit;
 use App\Models\Room;
 use App\Models\RoomPlayer;
-use App\Events\GameRoomEvent;
 use Illuminate\Contracts\Cache\LockTimeoutException;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class RoomService
 {
     protected BomberGameEngine $engine;
+
     protected GameTelemetryService $telemetry;
+
+    protected GameRulesService $rulesService;
 
     public const COLORS = ['neon-blue', 'neon-pink', 'neon-yellow', 'neon-green'];
 
-    public function __construct(BomberGameEngine $engine, GameTelemetryService $telemetry)
-    {
+    public function __construct(
+        BomberGameEngine $engine,
+        GameTelemetryService $telemetry,
+        GameRulesService $rulesService
+    ) {
         $this->engine = $engine;
         $this->telemetry = $telemetry;
+        $this->rulesService = $rulesService;
     }
 
     /**
@@ -33,13 +41,18 @@ class RoomService
                 $code = strtoupper(Str::random(6));
             } while (Room::where('code', $code)->exists());
 
+            // Read currently active rules to configure room defaults
+            $activeRules = $this->rulesService->getActiveRules();
+
             $room = Room::create([
                 'code' => $code,
                 'host_player_id' => $hostPlayerId,
-                'status' => 'waiting',
-                'max_players' => 4,
-                'round_duration_seconds' => 180,
+                'status' => Room::STATE_WAITING,
+                'max_players' => (int) ($activeRules['max_players'] ?? 4),
+                'round_duration_seconds' => (int) ($activeRules['round_duration_seconds'] ?? 180),
                 'map_seed' => mt_rand(10000, 99999),
+                'rules_version' => $activeRules['__version'] ?? 1,
+                'rules_snapshot' => $activeRules,
                 'last_activity_at' => now(),
             ]);
 
@@ -55,10 +68,15 @@ class RoomService
                 'last_seen_at' => now(),
             ]);
 
+            $this->recordAudit($room->code, 'none', Room::STATE_WAITING, 'ROOM_CREATED', [
+                'host_player_id' => $hostPlayerId,
+                'nickname' => $nickname,
+            ]);
+
             $this->telemetry->recordEvent(
                 $room->code,
                 'room_created',
-                $nickname . ' (' . substr($hostPlayerId, 0, 6) . ')',
+                $nickname.' ('.substr($hostPlayerId, 0, 6).')',
                 "arena.{$room->code}",
                 ['host_id' => $hostPlayerId, 'nickname' => $nickname]
             );
@@ -74,11 +92,11 @@ class RoomService
     {
         $room = Room::where('code', strtoupper($code))->first();
 
-        if (!$room) {
+        if (! $room) {
             return ['success' => false, 'error' => 'La sala no existe'];
         }
 
-        if ($room->status !== 'waiting') {
+        if ($room->status !== Room::STATE_WAITING) {
             return ['success' => false, 'error' => 'La partida ya comenzó o finalizó'];
         }
 
@@ -87,24 +105,23 @@ class RoomService
             ->first();
 
         if ($existing) {
-            // Already in room, update last seen and nickname
             $existing->update([
                 'nickname' => $nickname,
                 'last_seen_at' => now(),
             ]);
             $room->update(['last_activity_at' => now()]);
+
             return ['success' => true, 'room' => $room->load('players'), 'player' => $existing];
         }
 
         if ($room->isFull()) {
-            return ['success' => false, 'error' => 'La sala está completa (máximo 4 jugadores)'];
+            return ['success' => false, 'error' => "La sala está completa (máximo {$room->max_players} jugadores)"];
         }
 
-        // Determine next available slot index 0..3
         $takenSlots = $room->players()->pluck('slot_index')->toArray();
         $slotIndex = 0;
         for ($i = 0; $i < 4; $i++) {
-            if (!in_array($i, $takenSlots, true)) {
+            if (! in_array($i, $takenSlots, true)) {
                 $slotIndex = $i;
                 break;
             }
@@ -124,7 +141,6 @@ class RoomService
 
         $room->update(['last_activity_at' => now()]);
 
-        // Broadcast player joined
         broadcast(new GameRoomEvent($room->code, 'player_joined', [
             'player' => $player->toArray(),
             'total_players' => $room->players()->count(),
@@ -142,27 +158,42 @@ class RoomService
     }
 
     /**
-     * Toggle player ready status.
+     * Toggle player ready status and update state machine (WAITING <-> READY).
      */
     public function toggleReady(string $code, string $playerId): array
     {
         $room = Room::where('code', strtoupper($code))->first();
-        if (!$room) {
+        if (! $room) {
             return ['success' => false, 'error' => 'Sala no encontrada'];
         }
 
         $player = RoomPlayer::where('room_id', $room->id)->where('player_id', $playerId)->first();
-        if (!$player) {
+        if (! $player) {
             return ['success' => false, 'error' => 'Jugador no está en la sala'];
         }
 
-        $newReady = !$player->is_ready;
+        $newReady = ! $player->is_ready;
         $player->update(['is_ready' => $newReady, 'last_seen_at' => now()]);
         $room->update(['last_activity_at' => now()]);
+
+        // Evaluate whether room is in READY or WAITING state
+        $allPlayers = $room->players()->get();
+        $allReady = ($allPlayers->count() >= 2) && $allPlayers->every(fn ($p) => $p->is_ready);
+
+        if ($allReady && $room->status === Room::STATE_WAITING) {
+            $prev = $room->status;
+            $room->update(['status' => Room::STATE_READY]);
+            $this->recordAudit($room->code, $prev, Room::STATE_READY, 'ALL_PLAYERS_READY');
+        } elseif (! $allReady && $room->status === Room::STATE_READY) {
+            $prev = $room->status;
+            $room->update(['status' => Room::STATE_WAITING]);
+            $this->recordAudit($room->code, $prev, Room::STATE_WAITING, 'PLAYER_UNREADY');
+        }
 
         broadcast(new GameRoomEvent($room->code, 'player_ready', [
             'player_id' => $playerId,
             'is_ready' => $newReady,
+            'room_status' => $room->status,
         ]));
 
         $this->telemetry->recordEvent(
@@ -173,54 +204,72 @@ class RoomService
             ['player_id' => $playerId, 'is_ready' => $newReady]
         );
 
-        return ['success' => true, 'is_ready' => $newReady];
+        return ['success' => true, 'is_ready' => $newReady, 'room_status' => $room->status];
     }
 
     /**
      * Start the game if host and requirements met.
+     * Takes an immutable rules snapshot from current active rules.
      */
     public function startGame(string $code, string $playerId): array
     {
         $room = Room::where('code', strtoupper($code))->first();
-        if (!$room) {
+        if (! $room) {
             return ['success' => false, 'error' => 'Sala no encontrada'];
         }
 
-        if (!$room->isHost($playerId)) {
+        if (! $room->isHost($playerId)) {
             return ['success' => false, 'error' => 'Sólo el anfitrión puede iniciar la partida'];
         }
 
+        // Fetch active rules snapshot at game launch
+        $rulesSnapshot = $this->rulesService->getActiveRules();
+        $minPlayers = (int) ($rulesSnapshot['min_players'] ?? 2);
+
         $players = $room->players()->get();
-        if ($players->count() < 2) {
-            return ['success' => false, 'error' => 'Se necesitan al menos 2 jugadores para iniciar'];
+        if ($players->count() < $minPlayers) {
+            return ['success' => false, 'error' => "Se necesitan al menos {$minPlayers} jugadores para iniciar"];
         }
 
-        // Initialize state via game engine
-        $records = $players->map(fn($p) => [
+        $records = $players->map(fn ($p) => [
             'player_id' => $p->player_id,
             'nickname' => $p->nickname,
             'slot_index' => $p->slot_index,
         ])->toArray();
 
-        $initialState = $this->engine->createInitialState($records, $room->map_seed);
-        \Illuminate\Support\Facades\Cache::put("arena_state_{$room->code}", $initialState, 600);
+        $initialState = $this->engine->createInitialState($records, $room->map_seed, $rulesSnapshot);
+        Cache::put($this->stateKey($room->code), $initialState, 1800);
 
+        $prevStatus = $room->status;
         $room->update([
-            'status' => 'playing',
+            'status' => Room::STATE_PLAYING,
             'game_state' => $initialState,
+            'rules_snapshot' => $rulesSnapshot,
+            'rules_version' => $rulesSnapshot['__version'] ?? 1,
+            'round_duration_seconds' => (int) ($rulesSnapshot['round_duration_seconds'] ?? 180),
             'started_at' => now(),
+            'finished_at' => null,
+            'finish_reason' => null,
+            'winner_player_id' => null,
             'last_activity_at' => now(),
         ]);
+
+        $this->recordAudit($room->code, $prevStatus, Room::STATE_PLAYING, 'HOST_STARTED_GAME', [
+            'player_count' => count($records),
+            'rules_version' => $rulesSnapshot['__version'] ?? 1,
+            'duration' => $room->round_duration_seconds,
+        ], count($records), $room->round_duration_seconds);
 
         broadcast(new GameRoomEvent($room->code, 'game_started', [
             'state' => $initialState,
             'duration' => $room->round_duration_seconds,
+            'rules' => $rulesSnapshot,
         ]));
 
         $this->telemetry->recordEvent(
             $room->code,
             'game_started',
-            'Host ' . $playerId,
+            'Host '.$playerId,
             "arena.{$room->code}",
             ['players_count' => count($records), 'seed' => $room->map_seed]
         );
@@ -238,14 +287,6 @@ class RoomService
 
     /**
      * Run a state mutation atomically under a per-room lock.
-     *
-     * Without this lock, concurrent requests (moves, bombs, detonations from
-     * several players) read the same snapshot and the last writer silently
-     * erased the others' changes — the root cause of "bombs that never appear".
-     *
-     * The callback receives the state by reference plus an events collector.
-     * Broadcasts and telemetry are dispatched AFTER the lock is released so
-     * network I/O never blocks other players.
      */
     protected function mutateState(string $code, callable $mutation): array
     {
@@ -264,15 +305,15 @@ class RoomService
         try {
             $state = Cache::get($this->stateKey($cleanCode));
 
-            if (!$state) {
+            if (! $state) {
                 $room = Room::where('code', $cleanCode)->first();
-                if (!$room || $room->status !== 'playing' || !$room->game_state) {
+                if (! $room || $room->status !== Room::STATE_PLAYING || ! $room->game_state) {
                     return ['success' => false, 'error' => 'Partida no activa'];
                 }
                 $state = $room->game_state;
             }
 
-            if (!empty($state['is_game_over'])) {
+            if (! empty($state['is_game_over'])) {
                 return ['success' => false, 'error' => 'Partida finalizada'];
             }
 
@@ -283,24 +324,53 @@ class RoomService
                 $events[] = ['bomb_exploded', $detRes];
             }
 
+            // Central evaluation of match outcome (e.g. check time limit or surviving players)
+            $this->engine->evaluateMatchOutcome($state);
+
+            // Ensure $result reflects final game_over status if determined
+            if (is_array($result) && ! empty($state['is_game_over'])) {
+                $result['is_game_over'] = true;
+                $result['winner_id'] = $state['winner_id'] ?? null;
+                $result['finish_reason'] = $state['finish_reason'] ?? null;
+            }
+
             Cache::put($this->stateKey($cleanCode), $state, 1800);
         } finally {
             $lock->release();
         }
 
-        // Persist final result only once, when the match ends
-        if (!empty($state['is_game_over'])) {
-            Room::where('code', $cleanCode)->update([
-                'status' => 'finished',
-                'winner_player_id' => $state['winner_id'],
-                'finished_at' => now(),
-                'game_state' => json_encode($state),
-                'last_activity_at' => now(),
-            ]);
-            $events[] = ['game_over', [
-                'winner_id' => $state['winner_id'],
-                'players' => $state['players'],
-            ]];
+        // Authoritatively persist match completion and transition state to FINISHED (exactly once)
+        if (! empty($state['is_game_over'])) {
+            $finishReason = $state['finish_reason'] ?? Room::REASON_LAST_PLAYER_ALIVE;
+            $stats = $state['stats'] ?? [];
+
+            $room = Room::where('code', $cleanCode)->first();
+            if ($room && $room->status !== Room::STATE_FINISHED) {
+                $prevStatus = $room->status;
+                $room->update([
+                    'status' => Room::STATE_FINISHED,
+                    'winner_player_id' => $state['winner_id'],
+                    'finish_reason' => $finishReason,
+                    'finished_at' => now(),
+                    'game_state' => json_encode($state),
+                    'total_bombs_detonated' => $stats['total_bombs_detonated'] ?? 0,
+                    'total_blocks_destroyed' => $stats['total_blocks_destroyed'] ?? 0,
+                    'total_eliminations' => $stats['total_eliminations'] ?? 0,
+                    'last_activity_at' => now(),
+                ]);
+
+                $aliveCount = count(array_filter($state['players'] ?? [], fn ($p) => ! empty($p['alive'])));
+                $this->recordAudit($cleanCode, $prevStatus, Room::STATE_FINISHED, $finishReason, [
+                    'winner_id' => $state['winner_id'],
+                    'stats' => $stats,
+                ], $aliveCount, 0);
+
+                $events[] = ['game_over', [
+                    'winner_id' => $state['winner_id'],
+                    'finish_reason' => $finishReason,
+                    'players' => $state['players'],
+                ]];
+            }
         }
 
         foreach ($events as [$type, $data]) {
@@ -320,15 +390,11 @@ class RoomService
 
     /**
      * Process an ordered batch of player actions (moves and bombs) atomically.
-     *
-     * The client accumulates inputs while a request is in flight and sends them
-     * together, so network latency never piles up a backlog of requests and a
-     * bomb is always planted on the exact tile the player was standing on.
      */
     public function handleActions(string $code, string $playerId, array $actions): array
     {
         return $this->mutateState($code, function (array &$state, array &$events, array &$telemetry) use ($playerId, $actions) {
-            if (!isset($state['players'][$playerId])) {
+            if (! isset($state['players'][$playerId])) {
                 return ['success' => false, 'error' => 'Jugador no encontrado'];
             }
 
@@ -358,7 +424,7 @@ class RoomService
                     $res = $this->engine->handlePlaceBomb($state, $playerId);
                     if ($res['success']) {
                         $bombData = $res['bomb'];
-                        if (!empty($action['temp_id'])) {
+                        if (! empty($action['temp_id'])) {
                             $bombData['temp_id'] = $action['temp_id'];
                         }
                         $bombs[] = $bombData;
@@ -377,7 +443,7 @@ class RoomService
                     'x' => $player['x'],
                     'y' => $player['y'],
                     'direction' => $lastDirection,
-                    'collected_powerup' => !empty($collected),
+                    'collected_powerup' => ! empty($collected),
                     'collected_keys' => $collected,
                     'stats' => $player,
                 ]];
@@ -399,27 +465,23 @@ class RoomService
         });
     }
 
-    /**
-     * Handle a single player move (kept for API compatibility).
-     */
     public function handleMove(string $code, string $playerId, string $direction): array
     {
         $result = $this->handleActions($code, $playerId, [['type' => 'move', 'direction' => $direction]]);
         if (($result['success'] ?? false) && ($result['rejected'] ?? 0) > 0) {
             return ['success' => false, 'error' => $result['last_error'] ?? 'Movimiento bloqueado', 'pos' => $result['pos']];
         }
+
         return $result;
     }
 
-    /**
-     * Handle a single bomb placement (kept for API compatibility).
-     */
     public function placeBomb(string $code, string $playerId): array
     {
         $result = $this->handleActions($code, $playerId, [['type' => 'bomb']]);
         if (($result['success'] ?? false) && empty($result['bombs'])) {
             return ['success' => false, 'error' => 'No se pudo colocar la bomba'];
         }
+
         return ($result['success'] ?? false)
             ? ['success' => true, 'bomb' => $result['bombs'][0]]
             : $result;
@@ -427,16 +489,14 @@ class RoomService
 
     /**
      * Detonate a bomb whose fuse has elapsed according to the SERVER clock.
-     * Clients only "ping" this endpoint; early requests are ignored.
      */
     public function detonateBomb(string $code, string $bombId): array
     {
         return $this->mutateState($code, function (array &$state, array &$events, array &$telemetry) use ($bombId) {
-            if (!isset($state['bombs'][$bombId])) {
+            if (! isset($state['bombs'][$bombId])) {
                 return ['success' => true, 'already_exploded' => true];
             }
 
-            // Server is authoritative: allow 350ms tolerance for clock jitter
             if (microtime(true) + 0.35 < $state['bombs'][$bombId]['explodes_at']) {
                 return ['success' => true, 'pending' => true];
             }
@@ -459,12 +519,10 @@ class RoomService
 
     /**
      * Authoritative central room simulation tick.
-     * Evaluates expired bombs and progresses state.
      */
     public function tickRoom(string $code): array
     {
         return $this->mutateState($code, function (array &$state, array &$events, array &$telemetry) {
-            // Expired bombs are checked and detonated automatically by mutateState post-callback.
             return [
                 'success' => true,
                 'version' => $state['version'] ?? 1,
@@ -475,40 +533,99 @@ class RoomService
     }
 
     /**
-     * Request rematch: reset room to waiting or restart game.
+     * Cancel match administratively.
+     */
+    public function cancelMatch(string $code, string $adminName, ?string $reason = null): array
+    {
+        $room = Room::where('code', strtoupper($code))->first();
+        if (! $room) {
+            return ['success' => false, 'error' => 'Sala no encontrada'];
+        }
+
+        $prevStatus = $room->status;
+        $room->update([
+            'status' => Room::STATE_CANCELLED,
+            'finish_reason' => Room::REASON_ADMIN_CANCELLED,
+            'finished_at' => now(),
+            'last_activity_at' => now(),
+        ]);
+
+        $state = Cache::get($this->stateKey($room->code));
+        if ($state) {
+            $state['is_game_over'] = true;
+            $state['finish_reason'] = Room::REASON_ADMIN_CANCELLED;
+            Cache::put($this->stateKey($room->code), $state, 1800);
+        }
+
+        $this->recordAudit($room->code, $prevStatus, Room::STATE_CANCELLED, Room::REASON_ADMIN_CANCELLED, [
+            'cancelled_by' => $adminName,
+            'reason_note' => $reason ?: 'Cancelado desde panel de administración',
+        ]);
+
+        broadcast(new GameRoomEvent($room->code, 'game_over', [
+            'winner_id' => null,
+            'finish_reason' => Room::REASON_ADMIN_CANCELLED,
+            'players' => $state['players'] ?? [],
+        ]));
+
+        return ['success' => true, 'room' => $room];
+    }
+
+    /**
+     * Request rematch: reset room using current active rules snapshot.
      */
     public function requestRematch(string $code, string $playerId): array
     {
         $room = Room::where('code', strtoupper($code))->first();
-        if (!$room) {
+        if (! $room) {
             return ['success' => false, 'error' => 'Sala no encontrada'];
         }
 
+        // Check if rematch is allowed in room rules
+        $rules = $room->rules_snapshot ?? $this->rulesService->getActiveRules();
+        if (isset($rules['allow_rematch']) && ! $rules['allow_rematch']) {
+            return ['success' => false, 'error' => 'La revancha no está permitida según las reglas de la sala'];
+        }
+
+        // For rematch, we take the active rules snapshot (user preference: "toma esa configuracion al siguiente juego")
+        $activeRules = $this->rulesService->getActiveRules();
+
         $players = $room->players()->get();
-        $records = $players->map(fn($p) => [
+        $records = $players->map(fn ($p) => [
             'player_id' => $p->player_id,
             'nickname' => $p->nickname,
             'slot_index' => $p->slot_index,
         ])->toArray();
 
         $newSeed = mt_rand(10000, 99999);
-        $initialState = $this->engine->createInitialState($records, $newSeed);
+        $initialState = $this->engine->createInitialState($records, $newSeed, $activeRules);
         Cache::put($this->stateKey($room->code), $initialState, 1800);
 
+        $prevStatus = $room->status;
         $room->update([
-            'status' => 'playing',
+            'status' => Room::STATE_PLAYING,
             'map_seed' => $newSeed,
+            'rules_snapshot' => $activeRules,
+            'rules_version' => $activeRules['__version'] ?? 1,
+            'round_duration_seconds' => (int) ($activeRules['round_duration_seconds'] ?? 180),
             'game_state' => $initialState,
             'winner_player_id' => null,
+            'finish_reason' => null,
             'started_at' => now(),
             'finished_at' => null,
             'last_activity_at' => now(),
         ]);
 
+        $this->recordAudit($room->code, $prevStatus, Room::STATE_PLAYING, 'REMATCH_STARTED', [
+            'initiated_by' => $playerId,
+            'rules_version' => $activeRules['__version'] ?? 1,
+        ], count($records), $room->round_duration_seconds);
+
         broadcast(new GameRoomEvent($room->code, 'game_started', [
             'state' => $initialState,
             'duration' => $room->round_duration_seconds,
             'is_rematch' => true,
+            'rules' => $activeRules,
         ]));
 
         $this->telemetry->recordEvent(
@@ -520,5 +637,33 @@ class RoomService
         );
 
         return ['success' => true, 'state' => $initialState];
+    }
+
+    /**
+     * Record transition audit.
+     */
+    protected function recordAudit(
+        string $roomCode,
+        string $fromState,
+        string $toState,
+        string $reason,
+        array $details = [],
+        int $aliveCount = 0,
+        int $remainingSeconds = 0
+    ): void {
+        try {
+            GameMatchAudit::create([
+                'room_code' => $roomCode,
+                'from_state' => $fromState,
+                'to_state' => $toState,
+                'reason' => $reason,
+                'details' => $details,
+                'alive_count' => $aliveCount,
+                'remaining_seconds' => $remainingSeconds,
+                'occurred_at' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 }

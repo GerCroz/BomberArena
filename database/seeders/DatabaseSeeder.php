@@ -3,23 +3,31 @@
 namespace Database\Seeders;
 
 use App\Models\User;
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
+use App\Services\GameRulesService;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Hash;
 
 class DatabaseSeeder extends Seeder
 {
-    use WithoutModelEvents;
-
     /**
      * Seed the application's database.
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        // 1. Create or update Default Admin User
+        $adminEmail = env('BOMBER_ADMIN_EMAIL', 'admin@bomberarena.com');
+        $adminPassword = env('BOMBER_ADMIN_PASSWORD', 'admin1234');
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        User::updateOrCreate(
+            ['email' => $adminEmail],
+            [
+                'name' => 'Administrador de Reglas',
+                'password' => Hash::make($adminPassword),
+                'is_admin' => true,
+            ]
+        );
+
+        // 2. Initialize default game rules if not present
+        app(GameRulesService::class)->getActiveRules();
     }
 }

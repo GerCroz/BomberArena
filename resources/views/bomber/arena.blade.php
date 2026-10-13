@@ -577,9 +577,11 @@
                     document.getElementById('screen-game').classList.remove('hidden');
                     document.getElementById('gameover-modal').classList.add('hidden');
                     haptics.heavy();
+                    const countdownSecs = (data.rules && typeof data.rules.countdown_seconds === 'number')
+                        ? data.rules.countdown_seconds : 3;
                     runCountdown(() => {
                         startGameLoop();
-                    });
+                    }, countdownSecs);
                     break;
                 case 'player_moved':
                     if (gameState && gameState.players[data.player_id]) {
@@ -814,11 +816,16 @@
             }
         }
 
-        function runCountdown(callback) {
+        function runCountdown(callback, countdownSecs = 3) {
             const overlay = document.getElementById('countdown-overlay');
             const num = document.getElementById('countdown-number');
+            if (countdownSecs <= 0) {
+                if (overlay) overlay.classList.add('hidden');
+                if (callback) callback();
+                return;
+            }
             overlay.classList.remove('hidden');
-            let count = 3;
+            let count = countdownSecs;
             num.innerText = count;
             if (sfx) sfx.playCountdownTick();
 
@@ -843,12 +850,23 @@
         function startTimer() {
             if (timerInterval) clearInterval(timerInterval);
             const timerEl = document.getElementById('game-timer');
+            
+            function updateDisplay() {
+                if (!timerEl) return;
+                // If gameState has authoritative started_at and duration_seconds, compute precisely
+                if (gameState && gameState.started_at && gameState.duration_seconds) {
+                    const elapsed = getCurrentServerTime() - gameState.started_at;
+                    remainingSeconds = Math.max(0, Math.ceil(gameState.duration_seconds - elapsed));
+                }
+                const mins = String(Math.floor(remainingSeconds / 60)).padStart(2, '0');
+                const secs = String(remainingSeconds % 60).padStart(2, '0');
+                timerEl.innerText = `${mins}:${secs}`;
+            }
+
+            updateDisplay();
             timerInterval = setInterval(() => {
                 if (remainingSeconds > 0) {
-                    remainingSeconds--;
-                    const mins = String(Math.floor(remainingSeconds / 60)).padStart(2, '0');
-                    const secs = String(remainingSeconds % 60).padStart(2, '0');
-                    timerEl.innerText = `${mins}:${secs}`;
+                    updateDisplay();
                 } else {
                     clearInterval(timerInterval);
                 }
@@ -1199,6 +1217,8 @@
 
             modal.classList.remove('hidden');
 
+            const reason = data.finish_reason || 'UNKNOWN';
+
             if (data.winner_id && gameState && gameState.players[data.winner_id]) {
                 const winner = gameState.players[data.winner_id];
                 title.innerText = '¡VICTORIA!';
@@ -1207,6 +1227,16 @@
                 if (podium && window.BomberEngine) {
                     podium.innerHTML = window.BomberEngine.getCharacterSVG(winner.color, 84);
                 }
+            } else if (reason === 'TIME_EXPIRED') {
+                title.innerText = '¡TIEMPO AGOTADO!';
+                title.className = 'arcade-font text-3xl sm:text-5xl font-black text-amber-400 mb-1';
+                subtitle.innerText = 'Se cumplieron los 3 minutos sin un único vencedor (Empate)';
+                if (podium) podium.innerHTML = '';
+            } else if (reason === 'ADMIN_CANCELLED') {
+                title.innerText = 'PARTIDA CANCELADA';
+                title.className = 'arcade-font text-3xl sm:text-5xl font-black text-rose-400 mb-1';
+                subtitle.innerText = 'La partida fue cancelada desde la consola de administración';
+                if (podium) podium.innerHTML = '';
             } else {
                 title.innerText = '¡EMPATE!';
                 title.className = 'arcade-font text-3xl sm:text-5xl font-black text-slate-300 mb-1';

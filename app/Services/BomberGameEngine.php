@@ -5,16 +5,21 @@ namespace App\Services;
 class BomberGameEngine
 {
     public const WIDTH = 13;
+
     public const HEIGHT = 11;
 
     // Tile Types
     public const TILE_EMPTY = 0;
+
     public const TILE_WALL = 1;       // Indestructible (outer wall or fixed pillar)
+
     public const TILE_BLOCK = 2;      // Destructible block
 
     // Power-up Types
     public const POWERUP_SPEED = 'speed';
+
     public const POWERUP_BOMB = 'bomb';
+
     public const POWERUP_FIRE = 'fire';
 
     // Player spawn positions (x, y)
@@ -37,15 +42,16 @@ class BomberGameEngine
     ];
 
     /**
-     * Generate an initial map and state for a room.
+     * Generate an initial map and state for a room using an immutable rules snapshot.
      */
-    public function createInitialState(array $playerRecords, ?int $seed = null): array
+    public function createInitialState(array $playerRecords, ?int $seed = null, array $rules = []): array
     {
         $seed = $seed ?? mt_rand(10000, 99999);
         mt_srand($seed);
 
+        $blockDensity = (int) ($rules['block_density_percent'] ?? 65);
         $grid = [];
-        $powerups = []; // key: "x_y" => type
+        $powerups = [];
 
         for ($y = 0; $y < self::HEIGHT; $y++) {
             $row = [];
@@ -53,23 +59,26 @@ class BomberGameEngine
                 // Outer borders
                 if ($x === 0 || $x === self::WIDTH - 1 || $y === 0 || $y === self::HEIGHT - 1) {
                     $row[] = self::TILE_WALL;
+
                     continue;
                 }
 
                 // Fixed interior pillars
                 if ($x % 2 === 0 && $y % 2 === 0) {
                     $row[] = self::TILE_WALL;
+
                     continue;
                 }
 
                 // Safe zones around spawns
                 if ($this->isSafeZone($x, $y)) {
                     $row[] = self::TILE_EMPTY;
+
                     continue;
                 }
 
-                // Destructible block distribution (~65% chance)
-                if (mt_rand(1, 100) <= 65) {
+                // Destructible block distribution according to configured density
+                if (mt_rand(1, 100) <= $blockDensity) {
                     $row[] = self::TILE_BLOCK;
                 } else {
                     $row[] = self::TILE_EMPTY;
@@ -82,22 +91,26 @@ class BomberGameEngine
         $players = [];
         $colors = ['neon-blue', 'neon-pink', 'neon-yellow', 'neon-green'];
 
+        $initialSpeed = (int) ($rules['player_initial_speed'] ?? 1);
+        $initialMaxBombs = (int) ($rules['bomb_initial_simultaneous'] ?? 1);
+        $initialRange = (int) ($rules['bomb_initial_range'] ?? 2);
+
         foreach ($playerRecords as $index => $record) {
             $slot = $record['slot_index'] ?? $index;
             $spawn = self::SPAWN_POSITIONS[$slot] ?? ['x' => 1, 'y' => 1];
 
             $players[$record['player_id']] = [
                 'id' => $record['player_id'],
-                'nickname' => $record['nickname'] ?? ('Player ' . ($slot + 1)),
+                'nickname' => $record['nickname'] ?? ('Player '.($slot + 1)),
                 'color' => $colors[$slot % 4],
                 'slot' => $slot,
                 'x' => $spawn['x'],
                 'y' => $spawn['y'],
                 'direction' => 'down',
                 'alive' => true,
-                'speed' => 1,
-                'max_bombs' => 1,
-                'bomb_range' => 2,
+                'speed' => $initialSpeed,
+                'max_bombs' => $initialMaxBombs,
+                'bomb_range' => $initialRange,
                 'active_bombs' => 0,
                 'kills' => 0,
                 'bombs_placed' => 0,
@@ -105,17 +118,29 @@ class BomberGameEngine
             ];
         }
 
+        $duration = (int) ($rules['round_duration_seconds'] ?? 180);
+        $startedAt = microtime(true);
+
         return [
             'seed' => $seed,
             'version' => 1,
             'grid' => $grid,
             'players' => $players,
+            'initial_player_count' => count($players),
             'bombs' => [], // id => [id, x, y, owner_id, range, planted_at, explodes_at]
-            'explosions' => [], // list of active explosion tiles with expiration
-            'powerups' => $powerups, // "x_y" => 'speed'|'bomb'|'fire'
+            'explosions' => [],
+            'powerups' => $powerups,
             'winner_id' => null,
             'is_game_over' => false,
-            'started_at' => microtime(true),
+            'finish_reason' => null,
+            'started_at' => $startedAt,
+            'duration_seconds' => $duration,
+            'rules' => $rules,
+            'stats' => [
+                'total_bombs_detonated' => 0,
+                'total_blocks_destroyed' => 0,
+                'total_eliminations' => 0,
+            ],
         ];
     }
 
@@ -126,6 +151,7 @@ class BomberGameEngine
                 return true;
             }
         }
+
         return false;
     }
 
@@ -134,22 +160,26 @@ class BomberGameEngine
      */
     public function handleMove(array &$state, string $playerId, string $direction): array
     {
-        if (!isset($state['players'][$playerId])) {
+        if (! isset($state['players'][$playerId])) {
             return ['success' => false, 'error' => 'Jugador no encontrado'];
         }
 
         $player = &$state['players'][$playerId];
-        if (!$player['alive']) {
+        if (! $player['alive']) {
             return ['success' => false, 'error' => 'Jugador eliminado'];
         }
 
         $dx = 0;
         $dy = 0;
         switch ($direction) {
-            case 'up': $dy = -1; break;
-            case 'down': $dy = 1; break;
-            case 'left': $dx = -1; break;
-            case 'right': $dx = 1; break;
+            case 'up': $dy = -1;
+                break;
+            case 'down': $dy = 1;
+                break;
+            case 'left': $dx = -1;
+                break;
+            case 'right': $dx = 1;
+                break;
             default: return ['success' => false, 'error' => 'Dirección inválida'];
         }
 
@@ -167,21 +197,25 @@ class BomberGameEngine
             return ['success' => false, 'error' => 'Casilla bloqueada por obstáculo', 'pos' => ['x' => $player['x'], 'y' => $player['y']]];
         }
 
-        // Check bombs: A player can walk away from a bomb they are currently on,
-        // but cannot walk INTO a bomb tile.
+        // Check bombs: cannot walk into a tile with an active bomb
         foreach ($state['bombs'] as $bomb) {
             if ($bomb['x'] === $newX && $bomb['y'] === $newY) {
-                // Cannot enter bomb
                 return ['success' => false, 'error' => 'Casilla bloqueada por bomba', 'pos' => ['x' => $player['x'], 'y' => $player['y']]];
             }
         }
 
-        // Check living player collisions: two living players cannot occupy the same tile.
-        // Dead players have no collision and can be walked through freely.
-        foreach ($state['players'] as $pid => $otherPlayer) {
-            if ($pid !== $playerId && !empty($otherPlayer['alive'])) {
-                if ($otherPlayer['x'] === $newX && $otherPlayer['y'] === $newY) {
-                    return ['success' => false, 'error' => 'Casilla ocupada por otro jugador', 'pos' => ['x' => $player['x'], 'y' => $player['y']]];
+        // Check living player collisions if enabled in rules
+        $rules = $state['rules'] ?? [];
+        $checkCollisions = $rules['player_collisions'] ?? true;
+        $deadPlayersBlock = $rules['dead_players_block_movement'] ?? false;
+
+        if ($checkCollisions) {
+            foreach ($state['players'] as $pid => $otherPlayer) {
+                if ($pid !== $playerId) {
+                    $otherIsObstacle = ! empty($otherPlayer['alive']) || $deadPlayersBlock;
+                    if ($otherIsObstacle && $otherPlayer['x'] === $newX && $otherPlayer['y'] === $newY) {
+                        return ['success' => false, 'error' => 'Casilla ocupada por otro jugador', 'pos' => ['x' => $player['x'], 'y' => $player['y']]];
+                    }
                 }
             }
         }
@@ -218,16 +252,16 @@ class BomberGameEngine
     }
 
     /**
-     * Plant a bomb by player.
+     * Plant a bomb by player with parameterized fuse duration.
      */
     public function handlePlaceBomb(array &$state, string $playerId): array
     {
-        if (!isset($state['players'][$playerId])) {
+        if (! isset($state['players'][$playerId])) {
             return ['success' => false, 'error' => 'Jugador no encontrado'];
         }
 
         $player = &$state['players'][$playerId];
-        if (!$player['alive']) {
+        if (! $player['alive']) {
             return ['success' => false, 'error' => 'Jugador eliminado'];
         }
 
@@ -253,9 +287,12 @@ class BomberGameEngine
             }
         }
 
-        $bombId = 'bomb_' . uniqid() . '_' . mt_rand(100, 999);
+        $fuseMs = (int) ($state['rules']['bomb_fuse_ms'] ?? 2000);
+        $fuseSeconds = max(0.5, $fuseMs / 1000.0);
+
+        $bombId = 'bomb_'.uniqid().'_'.mt_rand(100, 999);
         $plantedAt = microtime(true);
-        $explodesAt = $plantedAt + 2.0; // 2 seconds fuse
+        $explodesAt = $plantedAt + $fuseSeconds;
 
         $bomb = [
             'id' => $bombId,
@@ -283,7 +320,7 @@ class BomberGameEngine
      */
     public function detonateBomb(array &$state, string $bombId): array
     {
-        if (!isset($state['bombs'][$bombId]) || ($state['bombs'][$bombId]['state'] ?? 'active') !== 'active') {
+        if (! isset($state['bombs'][$bombId]) || ($state['bombs'][$bombId]['state'] ?? 'active') !== 'active') {
             return ['success' => false, 'error' => 'Bomba no encontrada o ya detonada'];
         }
 
@@ -298,13 +335,19 @@ class BomberGameEngine
         $spawnedPowerUps = [];
         $eliminatedPlayers = [];
 
+        $rules = $state['rules'] ?? [];
+        $allowChain = $rules['allow_chain_reaction'] ?? true;
+        $dropChance = (int) ($rules['powerup_drop_chance_percent'] ?? 25);
+        $powerupsEnabled = $rules['powerups_enabled'] ?? true;
+        $selfDamage = $rules['self_damage'] ?? true;
+        $friendlyFire = $rules['friendly_fire'] ?? true;
+
         // Breadth-first explosion resolution for chain reactions
-        while (!empty($bombsToDetonate)) {
+        while (! empty($bombsToDetonate)) {
             $currentBomb = array_shift($bombsToDetonate);
             $cx = $currentBomb['x'];
             $cy = $currentBomb['y'];
             $range = $currentBomb['range'];
-            $ownerId = $currentBomb['owner_id'];
 
             // Center tile
             $allExplosionTiles["{$cx}_{$cy}"] = ['x' => $cx, 'y' => $cy];
@@ -338,8 +381,8 @@ class BomberGameEngine
                         $destroyedBlocks[] = ['x' => $tx, 'y' => $ty];
                         $allExplosionTiles["{$tx}_{$ty}"] = ['x' => $tx, 'y' => $ty];
 
-                        // Chance to spawn power-up (~35%)
-                        if (mt_rand(1, 100) <= 35) {
+                        // Chance to spawn power-up
+                        if ($powerupsEnabled && mt_rand(1, 100) <= $dropChance) {
                             $types = [self::POWERUP_SPEED, self::POWERUP_BOMB, self::POWERUP_FIRE];
                             $chosen = $types[array_rand($types)];
                             $state['powerups']["{$tx}_{$ty}"] = $chosen;
@@ -351,14 +394,16 @@ class BomberGameEngine
                     // Empty tile: fire continues
                     $allExplosionTiles["{$tx}_{$ty}"] = ['x' => $tx, 'y' => $ty];
 
-                    // Check if another active bomb is in this tile -> CHAIN REACTION!
-                    foreach ($state['bombs'] as $otherId => $otherBomb) {
-                        if ($otherBomb['x'] === $tx && $otherBomb['y'] === $ty) {
-                            if (($otherBomb['state'] ?? 'active') === 'active') {
-                                $otherBomb['state'] = 'detonated';
-                                unset($state['bombs'][$otherId]);
-                                $bombsToDetonate[] = $otherBomb;
-                                $detonatedBombIds[] = $otherId;
+                    // Check chain reactions with other active bombs
+                    if ($allowChain) {
+                        foreach ($state['bombs'] as $otherId => $otherBomb) {
+                            if ($otherBomb['x'] === $tx && $otherBomb['y'] === $ty) {
+                                if (($otherBomb['state'] ?? 'active') === 'active') {
+                                    $otherBomb['state'] = 'detonated';
+                                    unset($state['bombs'][$otherId]);
+                                    $bombsToDetonate[] = $otherBomb;
+                                    $detonatedBombIds[] = $otherId;
+                                }
                             }
                         }
                     }
@@ -368,12 +413,22 @@ class BomberGameEngine
 
         // Check player eliminations against all explosion tiles
         foreach ($state['players'] as $pid => &$player) {
-            if (!$player['alive']) {
+            if (! $player['alive']) {
                 continue;
             }
 
             $posKey = "{$player['x']}_{$player['y']}";
             if (isset($allExplosionTiles[$posKey])) {
+                $isOwner = ($rootBomb['owner_id'] === $pid);
+
+                // Apply self-damage and friendly-fire rule filters
+                if ($isOwner && ! $selfDamage) {
+                    continue;
+                }
+                if (! $isOwner && ! $friendlyFire) {
+                    continue;
+                }
+
                 $player['alive'] = false;
                 $eliminatedPlayers[] = [
                     'player_id' => $pid,
@@ -382,23 +437,25 @@ class BomberGameEngine
                 ];
 
                 // Credit kill to owner if not suicide
-                if ($rootBomb['owner_id'] !== $pid && isset($state['players'][$rootBomb['owner_id']])) {
+                if (! $isOwner && isset($state['players'][$rootBomb['owner_id']])) {
                     $state['players'][$rootBomb['owner_id']]['kills']++;
                 }
             }
         }
         unset($player);
 
-        // Check Game Over condition
-        $alivePlayers = array_filter($state['players'], fn($p) => $p['alive']);
-        $aliveCount = count($alivePlayers);
+        // Track stats
+        if (! isset($state['stats'])) {
+            $state['stats'] = ['total_bombs_detonated' => 0, 'total_blocks_destroyed' => 0, 'total_eliminations' => 0];
+        }
+        $state['stats']['total_bombs_detonated'] += count($detonatedBombIds);
+        $state['stats']['total_blocks_destroyed'] += count($destroyedBlocks);
+        $state['stats']['total_eliminations'] += count($eliminatedPlayers);
+
+        // Evaluate match termination rule centrally
+        $this->evaluateMatchOutcome($state);
 
         $state['version']++;
-
-        if ($aliveCount <= 1) {
-            $state['is_game_over'] = true;
-            $state['winner_id'] = $aliveCount === 1 ? array_key_first($alivePlayers) : null; // null means draw
-        }
 
         return [
             'success' => true,
@@ -410,15 +467,16 @@ class BomberGameEngine
             'eliminated_players' => $eliminatedPlayers,
             'is_game_over' => $state['is_game_over'],
             'winner_id' => $state['winner_id'],
+            'finish_reason' => $state['finish_reason'] ?? null,
         ];
     }
 
     /**
      * Check and detonate any active bomb whose timer has elapsed.
      */
-    public function checkAndDetonateExpiredBombs(array &$state): array
+    public function checkAndDetonateExpiredBombs(array &$state, ?float $currentTime = null): array
     {
-        $now = microtime(true);
+        $now = $currentTime ?? microtime(true);
         $results = [];
 
         if (empty($state['bombs'])) {
@@ -436,5 +494,77 @@ class BomberGameEngine
         }
 
         return $results;
+    }
+
+    /**
+     * Centralized match outcome evaluator based on parameterized rules.
+     * Evaluates:
+     * - Case A: Only 1 survivor remaining (from >= 2 initial players).
+     * - Case B: All players eliminated simultaneously (draw).
+     * - Case C: Time expired (configured result: draw or most_kills).
+     * - Case D: >= 2 players alive -> match MUST continue!
+     */
+    public function evaluateMatchOutcome(array &$state, ?float $currentTime = null): bool
+    {
+        if (! empty($state['is_game_over'])) {
+            return true;
+        }
+
+        $now = $currentTime ?? microtime(true);
+        $rules = $state['rules'] ?? [];
+        $initialCount = (int) ($state['initial_player_count'] ?? count($state['players']));
+
+        $alivePlayers = array_filter($state['players'], fn ($p) => ! empty($p['alive']));
+        $aliveCount = count($alivePlayers);
+
+        // Case A & B: Eliminations
+        if ($initialCount >= 2) {
+            if ($aliveCount === 1 && ($rules['end_on_last_survivor'] ?? true)) {
+                $state['is_game_over'] = true;
+                $state['winner_id'] = array_key_first($alivePlayers);
+                $state['finish_reason'] = 'LAST_PLAYER_ALIVE';
+
+                return true;
+            }
+
+            if ($aliveCount === 0) {
+                $state['is_game_over'] = true;
+                $state['winner_id'] = null; // draw
+                $state['finish_reason'] = 'ALL_PLAYERS_ELIMINATED';
+
+                return true;
+            }
+        }
+
+        // Case C: Check maximum duration / timeout
+        $startedAt = (float) ($state['started_at'] ?? $now);
+        $durationSeconds = (int) ($state['duration_seconds'] ?? ($rules['round_duration_seconds'] ?? 180));
+        $elapsed = $now - $startedAt;
+
+        if ($elapsed >= $durationSeconds) {
+            $state['is_game_over'] = true;
+            $timeoutPolicy = $rules['timeout_result'] ?? 'draw';
+
+            if ($timeoutPolicy === 'most_kills' && ! empty($alivePlayers)) {
+                // Pick living player with highest kills
+                uasort($alivePlayers, fn ($a, $b) => ($b['kills'] ?? 0) <=> ($a['kills'] ?? 0));
+                $first = reset($alivePlayers);
+                $second = next($alivePlayers);
+                if ($second && ($first['kills'] ?? 0) === ($second['kills'] ?? 0)) {
+                    $state['winner_id'] = null; // Tie in kills -> draw
+                } else {
+                    $state['winner_id'] = $first['id'];
+                }
+            } else {
+                $state['winner_id'] = null; // draw
+            }
+
+            $state['finish_reason'] = 'TIME_EXPIRED';
+
+            return true;
+        }
+
+        // Case D: Multiple players alive and time remaining -> Must continue
+        return false;
     }
 }

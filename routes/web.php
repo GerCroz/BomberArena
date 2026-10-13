@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AdminRulesController;
 use App\Http\Controllers\BomberGameController;
 use App\Http\Controllers\InstructorMonitorController;
 use App\Http\Controllers\RemoteStyleController;
@@ -44,3 +45,21 @@ Route::post('/api/docente/clear', [InstructorMonitorController::class, 'clearLog
 Route::get('/emisor', [RemoteStyleController::class, 'emisor'])->name('emisor');
 Route::post('/emitir', [RemoteStyleController::class, 'emitir'])->name('emitir');
 Route::get('/receptor', [RemoteStyleController::class, 'receptor'])->name('receptor');
+
+/*
+|--------------------------------------------------------------------------
+| Panel Administrativo de Reglas y Monitoreo de Partidas
+|--------------------------------------------------------------------------
+*/
+Route::prefix('admin')->group(function () {
+    Route::get('/login', [AdminRulesController::class, 'showLogin'])->name('admin.login');
+    Route::post('/login', [AdminRulesController::class, 'login'])->name('admin.login.submit');
+    Route::post('/logout', [AdminRulesController::class, 'logout'])->name('admin.logout');
+
+    Route::middleware('admin')->group(function () {
+        Route::get('/reglas', [AdminRulesController::class, 'rulesDashboard'])->name('admin.rules');
+        Route::post('/reglas', [AdminRulesController::class, 'updateRules'])->name('admin.rules.update');
+        Route::get('/api/partidas', [AdminRulesController::class, 'getActiveMatches'])->name('admin.matches.api');
+        Route::post('/partidas/{code}/cancelar', [AdminRulesController::class, 'cancelMatch'])->name('admin.matches.cancel');
+    });
+});
