@@ -158,13 +158,13 @@ class BomberGameEngine
 
         // Check map boundaries
         if ($newX < 0 || $newX >= self::WIDTH || $newY < 0 || $newY >= self::HEIGHT) {
-            return ['success' => false, 'error' => 'Fuera de límites'];
+            return ['success' => false, 'error' => 'Fuera de límites', 'pos' => ['x' => $player['x'], 'y' => $player['y']]];
         }
 
         // Check solid tiles
         $tile = $state['grid'][$newY][$newX] ?? self::TILE_WALL;
         if ($tile === self::TILE_WALL || $tile === self::TILE_BLOCK) {
-            return ['success' => false, 'error' => 'Casilla bloqueada por obstáculo'];
+            return ['success' => false, 'error' => 'Casilla bloqueada por obstáculo', 'pos' => ['x' => $player['x'], 'y' => $player['y']]];
         }
 
         // Check bombs: A player can walk away from a bomb they are currently on,
@@ -172,7 +172,7 @@ class BomberGameEngine
         foreach ($state['bombs'] as $bomb) {
             if ($bomb['x'] === $newX && $bomb['y'] === $newY) {
                 // Cannot enter bomb
-                return ['success' => false, 'error' => 'Casilla bloqueada por bomba'];
+                return ['success' => false, 'error' => 'Casilla bloqueada por bomba', 'pos' => ['x' => $player['x'], 'y' => $player['y']]];
             }
         }
 
@@ -280,6 +280,7 @@ class BomberGameEngine
         unset($state['bombs'][$bombId]);
 
         $bombsToDetonate = [$rootBomb];
+        $detonatedBombIds = [$rootBomb['id']];
         $allExplosionTiles = [];
         $destroyedBlocks = [];
         $spawnedPowerUps = [];
@@ -343,6 +344,7 @@ class BomberGameEngine
                         if ($otherBomb['x'] === $tx && $otherBomb['y'] === $ty) {
                             unset($state['bombs'][$otherId]);
                             $bombsToDetonate[] = $otherBomb;
+                            $detonatedBombIds[] = $otherId;
                         }
                     }
                 }
@@ -386,6 +388,7 @@ class BomberGameEngine
         return [
             'success' => true,
             'root_bomb_id' => $rootBomb['id'],
+            'detonated_bomb_ids' => array_values(array_unique($detonatedBombIds)),
             'explosion_tiles' => array_values($allExplosionTiles),
             'destroyed_blocks' => $destroyedBlocks,
             'spawned_powerups' => $spawnedPowerUps,
@@ -393,5 +396,30 @@ class BomberGameEngine
             'is_game_over' => $state['is_game_over'],
             'winner_id' => $state['winner_id'],
         ];
+    }
+
+    /**
+     * Check and detonate any active bomb whose timer has elapsed.
+     */
+    public function checkAndDetonateExpiredBombs(array &$state): array
+    {
+        $now = microtime(true);
+        $results = [];
+
+        if (empty($state['bombs'])) {
+            return $results;
+        }
+
+        $bombIds = array_keys($state['bombs']);
+        foreach ($bombIds as $id) {
+            if (isset($state['bombs'][$id]) && $now >= $state['bombs'][$id]['explodes_at']) {
+                $res = $this->detonateBomb($state, $id);
+                if ($res['success']) {
+                    $results[] = $res;
+                }
+            }
+        }
+
+        return $results;
     }
 }

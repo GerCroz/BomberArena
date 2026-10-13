@@ -528,18 +528,11 @@
                     break;
                 case 'player_moved':
                     if (gameState && gameState.players[data.player_id]) {
-                        // If it is another player, update them immediately
+                        // Only update other players! NEVER overwrite our own local position with WebSocket echo
                         if (data.player_id !== CURRENT_PLAYER_ID) {
                             gameState.players[data.player_id].x = data.x;
                             gameState.players[data.player_id].y = data.y;
                             gameState.players[data.player_id].direction = data.direction;
-                        } else {
-                            // Reconcile our own position if server corrected us
-                            const me = gameState.players[CURRENT_PLAYER_ID];
-                            if (me && (Math.abs(me.x - data.x) > 1 || Math.abs(me.y - data.y) > 1)) {
-                                me.x = data.x;
-                                me.y = data.y;
-                            }
                         }
 
                         if (data.collected_powerup) {
@@ -553,46 +546,64 @@
                     break;
                 case 'bomb_placed':
                     if (gameState) {
+                        data.bomb.local_planted_at = performance.now();
                         gameState.bombs[data.bomb.id] = data.bomb;
                         sfx.playBombDrop();
-                        // Local fuse countdown to detonate
-                        setTimeout(() => {
-                            triggerDetonation(data.bomb.id);
-                        }, 2000);
                     }
                     break;
                 case 'bomb_exploded':
                     if (gameState) {
                         delete gameState.bombs[data.root_bomb_id];
+                        if (data.detonated_bomb_ids) {
+                            data.detonated_bomb_ids.forEach(id => {
+                                delete gameState.bombs[id];
+                            });
+                        }
+
                         sfx.playExplosion();
                         haptics.explosion();
 
                         // Destroy blocks
-                        data.destroyed_blocks.forEach(b => {
-                            gameState.grid[b.y][b.x] = 0;
-                            spawnExplosionParticles(b.x * TILE_SIZE + 25, b.y * TILE_SIZE + 25, '#ff007f');
-                        });
+                        if (data.destroyed_blocks) {
+                            data.destroyed_blocks.forEach(b => {
+                                gameState.grid[b.y][b.x] = 0;
+                                spawnExplosionParticles(b.x * TILE_SIZE + 25, b.y * TILE_SIZE + 25, '#ff007f');
+                            });
+                        }
 
                         // Spawn power-ups
-                        data.spawned_powerups.forEach(pu => {
-                            gameState.powerups[`${pu.x}_${pu.y}`] = pu.type;
-                        });
+                        if (data.spawned_powerups) {
+                            data.spawned_powerups.forEach(pu => {
+                                gameState.powerups[`${pu.x}_${pu.y}`] = pu.type;
+                            });
+                        }
 
-                        // Explosion tiles particles
-                        data.explosion_tiles.forEach(t => {
-                            spawnExplosionParticles(t.x * TILE_SIZE + 25, t.y * TILE_SIZE + 25, '#ffe600');
-                        });
+                        // Explosion tiles particles & remove any bomb caught in explosion
+                        if (data.explosion_tiles) {
+                            data.explosion_tiles.forEach(t => {
+                                spawnExplosionParticles(t.x * TILE_SIZE + 25, t.y * TILE_SIZE + 25, '#ffe600');
+                                if (gameState.bombs) {
+                                    Object.keys(gameState.bombs).forEach(bId => {
+                                        if (gameState.bombs[bId].x === t.x && gameState.bombs[bId].y === t.y) {
+                                            delete gameState.bombs[bId];
+                                        }
+                                    });
+                                }
+                            });
+                        }
 
                         // Eliminations
-                        data.eliminated_players.forEach(p => {
-                            if (gameState.players[p.player_id]) {
-                                gameState.players[p.player_id].alive = false;
-                            }
-                            sfx.playElimination();
-                            if (p.player_id === CURRENT_PLAYER_ID) {
-                                haptics.explosion();
-                            }
-                        });
+                        if (data.eliminated_players) {
+                            data.eliminated_players.forEach(p => {
+                                if (gameState.players[p.player_id]) {
+                                    gameState.players[p.player_id].alive = false;
+                                }
+                                sfx.playElimination();
+                                if (p.player_id === CURRENT_PLAYER_ID) {
+                                    haptics.explosion();
+                                }
+                            });
+                        }
 
                         updateHud();
                     }
@@ -813,6 +824,10 @@
             return true;
         }
 
+        // Sequential FIFO queue for network move requests to guarantee strict ordering
+        let moveQueue = [];
+        let isSendingMove = false;
+
         // Client-side prediction for instantaneous 0ms response
         function predictAndMove(direction) {
             if (!gameState || !gameState.players || currentRoom.status !== 'playing') return;
@@ -828,11 +843,13 @@
             const nextX = me.x + dx;
             const nextY = me.y + dy;
 
+            // Turn player face towards direction
+            me.direction = direction;
+
             if (canMoveTo(nextX, nextY)) {
                 // Instantly update on local screen (0ms latency!)
                 me.x = nextX;
                 me.y = nextY;
-                me.direction = direction;
 
                 // Collect power-up immediately
                 const puKey = `${nextX}_${nextY}`;
@@ -841,10 +858,10 @@
                     sfx.playPowerup();
                     haptics.heavy();
                 }
-            }
 
-            // Send authoritative command to server in the background
-            sendMove(direction);
+                // Send authoritative command to server in strict order
+                sendMove(direction);
+            }
         }
 
         // Ergonomic Mobile Touch Controls with Haptics and Hold-to-walk
@@ -911,35 +928,96 @@
             }
         }
 
-        // Non-blocking fire-and-forget move dispatching with reconciliation
-        let activeMoveRequest = false;
+        // Enqueue movement to send to server sequentially (strict FIFO)
         function sendMove(direction) {
+            moveQueue.push(direction);
+            processMoveQueue();
+        }
+
+        async function processMoveQueue() {
+            if (isSendingMove || moveQueue.length === 0) return;
+            isSendingMove = true;
+            const dir = moveQueue.shift();
+
             try {
-                fetch(`/api/rooms/${ROOM_CODE}/move`, {
+                const res = await fetch(`/api/rooms/${ROOM_CODE}/move`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
-                    body: JSON.stringify({ direction })
-                }).then(res => res.json()).then(data => {
-                    if (data && data.success && data.pos) {
-                        const me = gameState.players[CURRENT_PLAYER_ID];
-                        if (me && (Math.abs(me.x - data.pos.x) > 1 || Math.abs(me.y - data.pos.y) > 1)) {
-                            me.x = data.pos.x;
-                            me.y = data.pos.y;
-                        }
+                    body: JSON.stringify({ direction: dir })
+                });
+                const data = await res.json();
+                // Only reconcile if the server rejected the move and no further moves are in queue
+                if (data && !data.success && data.pos && moveQueue.length === 0) {
+                    const me = gameState.players[CURRENT_PLAYER_ID];
+                    if (me) {
+                        me.x = data.pos.x;
+                        me.y = data.pos.y;
                     }
-                }).catch(() => {});
-            } catch (err) {}
+                }
+            } catch (err) {
+                // Ignore transient network errors
+            } finally {
+                isSendingMove = false;
+                if (moveQueue.length > 0) {
+                    processMoveQueue();
+                }
+            }
         }
 
         async function sendBomb() {
+            if (!gameState || !gameState.players || currentRoom.status !== 'playing') return;
+            const me = gameState.players[CURRENT_PLAYER_ID];
+            if (!me || !me.alive) return;
+
             try {
-                await fetch(`/api/rooms/${ROOM_CODE}/bomb`, {
+                const res = await fetch(`/api/rooms/${ROOM_CODE}/bomb`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN }
                 });
+                const data = await res.json();
+                if (data && data.success && data.bomb) {
+                    data.bomb.local_planted_at = performance.now();
+                    gameState.bombs[data.bomb.id] = data.bomb;
+                    sfx.playBombDrop();
+                }
             } catch (err) {
                 console.error(err);
             }
+        }
+
+        // Active bomb detonation checker running on client loop
+        function checkActiveBombs() {
+            if (!gameState || !gameState.bombs) return;
+            const now = performance.now();
+
+            Object.values(gameState.bombs).forEach(b => {
+                if (!b.local_planted_at) {
+                    b.local_planted_at = now;
+                }
+
+                const elapsed = now - b.local_planted_at;
+                const amOwner = b.owner_id === CURRENT_PLAYER_ID;
+
+                // Explode after 2.0 seconds:
+                // 1. Owner triggers at >= 2000ms
+                // 2. Host fallback at >= 2200ms
+                // 3. Emergency fallback at >= 2500ms
+                const shouldTrigger = (amOwner && elapsed >= 2000) ||
+                                      (isHost && elapsed >= 2200) ||
+                                      (elapsed >= 2500);
+
+                if (shouldTrigger && !b._triggering) {
+                    b._triggering = true;
+                    triggerDetonation(b.id).finally(() => {
+                        // Allow retry if bomb is still present after 500ms
+                        setTimeout(() => {
+                            if (gameState.bombs && gameState.bombs[b.id]) {
+                                b._triggering = false;
+                            }
+                        }, 500);
+                    });
+                }
+            });
         }
 
         async function triggerDetonation(bombId) {
@@ -1020,6 +1098,7 @@
             if (animFrameId) cancelAnimationFrame(animFrameId);
 
             function loop() {
+                checkActiveBombs();
                 render();
                 animFrameId = requestAnimationFrame(loop);
             }
