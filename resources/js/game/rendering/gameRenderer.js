@@ -172,7 +172,7 @@ export class GameRenderer {
         // --- LAYER 5: PLAYERS (interpolated, local player on top) ---
         if (gameState.players) {
             const list = Object.values(gameState.players).sort((a, b) =>
-                (a.player_id === currentUserId) - (b.player_id === currentUserId));
+                (a.id === currentUserId) - (b.id === currentUserId));
 
             const lerp = this.reducedMotion ? 1 : Math.min(1, dt * 20);
 
@@ -181,10 +181,10 @@ export class GameRenderer {
                 const tx = s.col * ts + half;
                 const ty = s.row * ts + half;
 
-                let dp = this.displayPos.get(player.player_id);
+                let dp = this.displayPos.get(player.id);
                 if (!dp || Math.abs(dp.x - tx) > ts * 2.5 || Math.abs(dp.y - ty) > ts * 2.5) {
                     dp = { x: tx, y: ty };
-                    this.displayPos.set(player.player_id, dp);
+                    this.displayPos.set(player.id, dp);
                 } else {
                     dp.x += (tx - dp.x) * lerp;
                     dp.y += (ty - dp.y) * lerp;
@@ -197,7 +197,7 @@ export class GameRenderer {
                     ...player,
                     direction: this.logicalToScreenDir(player.direction || 'down'),
                     isMoving: travelling || recentlyMoved,
-                }, motionTime, player.player_id === currentUserId);
+                }, motionTime, player.id === currentUserId);
             }
         }
     }

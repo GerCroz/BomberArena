@@ -1,0 +1,301 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+import vm from 'node:vm';
+
+const rendererSource = readFileSync(new URL('../../resources/js/game/rendering/gameRenderer.js', import.meta.url), 'utf8')
+    .replace(/^import .*;$/gm, '')
+    .replace(/^export /gm, '');
+
+test('adjacent players retain independent animated positions and the local player renders on top', () => {
+    let now = 0;
+    const draws = [];
+    const canvasContext = { clearRect() {}, drawImage() {} };
+    const canvas = { getContext: () => canvasContext };
+    const context = vm.createContext({
+        performance: { now: () => now },
+        document: { createElement: () => ({ getContext: () => canvasContext }) },
+        drawTile() {},
+        drawCharacter: (ctx, x, y, size, player, time, local) => draws.push({ id: player.id, x, y, local }),
+    });
+    vm.runInContext(rendererSource, context);
+    context.canvas = canvas;
+    context.state = {
+        grid: [[0]],
+        players: {
+            local: { id: 'local', x: 1, y: 1, alive: true },
+            rival: { id: 'rival', x: 1, y: 2, alive: true },
+        },
+    };
+    vm.runInContext("const renderer = new GameRenderer(canvas); renderer.render(state, 'local');", context);
+    draws.length = 0;
+    now = 25;
+
+    vm.runInContext("renderer.render(state, 'local');", context);
+
+    assert.deepEqual(draws, [
+        { id: 'rival', x: 75, y: 125, local: false },
+        { id: 'local', x: 75, y: 75, local: true },
+    ]);
+
+    draws.length = 0;
+    context.state.players.local.x = 2;
+    now = 50;
+
+    vm.runInContext("renderer.render(state, 'local');", context);
+
+    assert.deepEqual(draws, [
+        { id: 'rival', x: 75, y: 125, local: false },
+        { id: 'local', x: 100, y: 75, local: true },
+    ]);
+});
+
+const template = readFileSync(new URL('../../resources/views/bomber/arena.blade.php', import.meta.url), 'utf8');
+const script = template.slice(template.indexOf('const ROOM_CODE ='), template.lastIndexOf('</script>'))
+    .replace(/\{\{[^}]*\}\}/g, '180')
+    .replace('@json($room)', 'initialRoom')
+    .replace('@json($room->game_state)', 'initialState');
+
+function createClient(fetchResponse = async () => ({ ok: true, json: async () => ({ success: true }) })) {
+    const nodes = new Map();
+    const listeners = new Map();
+    const calls = [];
+    const alerts = [];
+    const intervals = new Map();
+    let nextId = 1;
+    const state = {
+        round_id: 'old_round', started_at: 100, version: 90, duration_seconds: 180,
+        rules: { countdown_seconds: 0 }, bombs: {}, powerups: {}, is_game_over: false,
+        grid: Array.from({ length: 11 }, () => Array(13).fill(0)),
+        players: { '180': { id: '180', x: 1, y: 1, alive: true, max_bombs: 1 }, other: { id: 'other', x: 11, y: 9, alive: true } },
+    };
+    const context = vm.createContext({
+        initialState: state, initialRoom: { status: 'playing', players: [] }, console,
+        Date, performance: { now: () => 500 },
+        AbortController, AbortSignal,
+        haptics: { heavy() {}, light() {}, explosion() {}, victory() {} },
+        alert: message => alerts.push(message),
+        fetch: (...args) => { calls.push(args); return fetchResponse(...args); },
+        window: { addEventListener: (name, callback) => listeners.set(name, callback) },
+        document: {
+            addEventListener() {},
+            getElementById(id) {
+                if (!nodes.has(id)) nodes.set(id, { classList: { add() {}, remove() {} }, appendChild() {}, innerHTML: '' });
+                return nodes.get(id);
+            },
+            createElement: () => ({ innerHTML: '', innerText: '', appendChild() {} }),
+        },
+        setInterval: callback => { const id = nextId++; intervals.set(id, callback); return id; },
+        clearInterval: id => intervals.delete(id),
+        setTimeout: () => nextId++,
+        requestAnimationFrame: () => nextId++, cancelAnimationFrame() {},
+    });
+    vm.runInContext(script, context);
+    return { context, calls, alerts, intervals, listeners, run: source => vm.runInContext(source, context) };
+}
+
+function startRematch(client) {
+    client.run(`handleIncomingEvent({ type: 'game_started', data: { state: { ...gameState, round_id: 'new_round', started_at: 200, version: 1, bombs: {}, is_game_over: false }, rules: { countdown_seconds: 0 } } });`);
+}
+
+test('rematch resets versions, pending input and explosion effects and accepts new movements', () => {
+    const client = createClient();
+    client.run(`pendingActionQueue = [{ type: 'bomb' }]; gameRenderer = { activeExplosions: ['old'], invalidateBoard() {}, render() {} };`);
+
+    startRematch(client);
+    client.run(`handleIncomingEvent({ type: 'player_moved', data: { round_id: 'new_round', version: 2, player_id: 'other', x: 10, y: 9 } });`);
+
+    assert.equal(client.run('lastProcessedVersion'), 2);
+    assert.equal(client.run('pendingActionQueue.length'), 0);
+    assert.equal(client.run('gameRenderer.activeExplosions.length'), 0);
+    assert.equal(client.run('gameState.players.other.x'), 10);
+});
+
+test('old game over and old game started events cannot finish or replace a rematch', () => {
+    const client = createClient();
+    startRematch(client);
+
+    client.run(`handleIncomingEvent({ type: 'game_over', data: { round_id: 'old_round', winner_id: 'other' } });
+        handleIncomingEvent({ type: 'game_started', data: { state: { round_id: 'old_round', started_at: 100 } } });`);
+
+    assert.equal(client.run('gameState.round_id'), 'new_round');
+    assert.equal(client.run('currentRoom.status'), 'playing');
+});
+
+test('duplicate start does not restart the countdown or discard new input', () => {
+    const client = createClient();
+    startRematch(client);
+    client.run(`pendingActionQueue = [{ type: 'move', direction: 'right' }];`);
+
+    startRematch(client);
+
+    assert.equal(client.run('roundGeneration'), 1);
+    assert.equal(client.run('pendingActionQueue.length'), 1);
+});
+
+test('an old action response cannot insert bombs or reconcile positions in a rematch', async () => {
+    let resolveResponse;
+    const client = createClient(() => new Promise(resolve => { resolveResponse = resolve; }));
+    client.run(`pendingActionQueue = [{ type: 'bomb', temp_id: 'optimistic_old' }];`);
+    const pending = client.run('flushActions()');
+    startRematch(client);
+
+    resolveResponse({ ok: true, json: async () => ({ success: true, pos: { x: 7, y: 7 }, bombs: [{ id: 'old_bomb', temp_id: 'optimistic_old' }] }) });
+    await pending;
+
+    assert.equal(client.run('Object.keys(gameState.bombs).length'), 0);
+    assert.equal(client.run('gameState.players[CURRENT_PLAYER_ID].x'), 1);
+});
+
+test('rejected bomb placement removes the optimistic bomb and allows retry', async () => {
+    const client = createClient(async () => ({ ok: true, json: async () => ({ success: true, rejected: 1, bombs: [], events: [] }) }));
+    client.run(`gameState.bombs.optimistic = { _optimistic: true }; pendingActionQueue = [{ type: 'bomb', temp_id: 'optimistic' }];`);
+
+    await client.run('flushActions()');
+
+    assert.equal(client.run('Object.keys(gameState.bombs).length'), 0);
+    assert.equal(client.run('isFlushingActions'), false);
+});
+
+test('only one server tick can be in flight and it includes the round identifier', async () => {
+    let resolveResponse;
+    const client = createClient(() => new Promise(resolve => { resolveResponse = resolve; }));
+
+    const firstTick = client.run('sendServerTick()');
+    await client.run('sendServerTick()');
+
+    assert.equal(client.calls.length, 1);
+    assert.equal(JSON.parse(client.calls[0][1].body).round_id, 'old_round');
+    resolveResponse({ ok: true, json: async () => ({ success: true }) });
+    await firstTick;
+    assert.equal(client.run('serverTickInFlight'), false);
+});
+
+test('late explosions still apply after a higher version and cannot resurrect detonated bombs', () => {
+    const client = createClient();
+    client.run(`gameRenderer = { addExplosion() {} };`);
+
+    client.run(`handleIncomingEvent({ type: 'bomb_exploded', data: { round_id: 'old_round', version: 2, event_id: 'explosion', root_bomb_id: 'bomb', detonated_bomb_ids: ['bomb'] } });
+        handleIncomingEvent({ type: 'bomb_placed', data: { round_id: 'old_round', version: 1, bomb: { id: 'bomb' } } });`);
+
+    assert.equal(client.run('gameState.bombs.bomb'), undefined);
+    assert.equal(client.run("detonatedBombIds.has('bomb')"), true);
+});
+
+test('HTTP and WebSocket copies of an explosion are applied once without deleting unchained bombs', () => {
+    const client = createClient();
+    client.run(`let explosionCount = 0; gameRenderer = { addExplosion() { explosionCount++; } }; gameState.bombs.unchained = { x: 1, y: 1 };`);
+
+    client.run(`const explosion = { type: 'bomb_exploded', data: { round_id: 'old_round', version: 91, event_id: 'same_event', root_bomb_id: 'root', detonated_bomb_ids: ['root'], explosion_tiles: [{ x: 1, y: 1 }] } };
+        handleIncomingEvent(explosion); handleIncomingEvent(explosion);`);
+
+    assert.equal(client.run('explosionCount'), 1);
+    assert.ok(client.run('gameState.bombs.unchained'));
+});
+
+test('game over stops timers and further bomb inputs', () => {
+    const client = createClient();
+    client.run('startGameLoop()');
+
+    client.run(`handleIncomingEvent({ type: 'game_over', data: { round_id: 'old_round', winner_id: null, finish_reason: 'ALL_PLAYERS_ELIMINATED' } }); sendBomb();`);
+
+    assert.equal(client.run('currentRoom.status'), 'finished');
+    assert.equal(client.run('animFrameId'), null);
+    assert.equal(client.intervals.size, 0);
+    assert.equal(client.calls.length, 0);
+});
+
+test('rematch errors are visible and permit another attempt', async () => {
+    const client = createClient(async () => ({ ok: false, json: async () => ({ success: false, error: 'Servidor ocupado, reintenta' }) }));
+
+    await client.run('requestRematch()');
+
+    assert.equal(client.alerts[0], 'Servidor ocupado, reintenta');
+    assert.equal(client.run('rematchInFlight'), false);
+});
+
+test('Space plants a bomb even during movement throttling', async () => {
+    const client = createClient();
+    client.run('initKeyboard(); lastMoveTime = performance.now();');
+
+    client.listeners.get('keydown')({ code: 'Space', key: ' ', preventDefault() {} });
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(client.calls.length, 1);
+    assert.equal(JSON.parse(client.calls[0][1].body).actions[0].type, 'bomb');
+});
+
+test('a server snapshot recovers missed eliminations and game over', () => {
+    const client = createClient();
+
+    client.run(`applyStateSnapshot({ ...gameState, version: 91, is_game_over: true, winner_id: null, finish_reason: 'ALL_PLAYERS_ELIMINATED', players: { '180': { alive: false }, other: { alive: false } } });`);
+
+    assert.equal(client.run('gameState.is_game_over'), true);
+    assert.equal(client.run('currentRoom.status'), 'finished');
+    assert.equal(client.run('gameState.players.other.alive'), false);
+});
+
+test('a snapshot can discover a new rematch without its WebSocket event', () => {
+    const client = createClient();
+
+    client.run(`applyStateSnapshot({ ...gameState, round_id: 'new_round', started_at: 200, version: 1 });`);
+
+    assert.equal(client.run('gameState.round_id'), 'new_round');
+    assert.equal(client.run('lastProcessedVersion'), 1);
+});
+
+test('snapshots preserve predicted movement while an action is pending', () => {
+    const client = createClient();
+    client.run(`isFlushingActions = true; gameState.players[CURRENT_PLAYER_ID].x = 3;`);
+
+    client.run(`applyStateSnapshot({ ...gameState, version: 91, players: { '180': { x: 1, y: 1, alive: true } } });`);
+
+    assert.equal(client.run('gameState.players[CURRENT_PLAYER_ID].x'), 3);
+});
+
+test('a stalled old action is aborted so new rematch commands can be sent', async () => {
+    const responses = [];
+    const client = createClient(() => new Promise(resolve => responses.push(resolve)));
+    client.run(`pendingActionQueue = [{ type: 'move', direction: 'right' }];`);
+    const oldRequest = client.run('flushActions()');
+    const oldSignal = client.calls[0][1].signal;
+
+    startRematch(client);
+    client.run(`pendingActionQueue = [{ type: 'bomb' }];`);
+    const newRequest = client.run('flushActions()');
+
+    assert.equal(oldSignal.aborted, true);
+    assert.equal(client.calls.length, 2);
+    responses[0]({ ok: true, json: async () => ({ success: true }) });
+    await oldRequest;
+    assert.equal(client.run('isFlushingActions'), true);
+    responses[1]({ ok: true, json: async () => ({ success: true }) });
+    await newRequest;
+    assert.equal(client.run('isFlushingActions'), false);
+});
+
+test('countdown blocks both bomb placement and movement', () => {
+    const client = createClient();
+    client.run('isCountingDown = true;');
+
+    client.run("sendBomb(); predictAndMove('right');");
+
+    assert.equal(client.run('gameState.players[CURRENT_PLAYER_ID].x'), 1);
+    assert.equal(client.calls.length, 0);
+});
+
+test('a finished client discovers a rematch through room state if the start event is lost', async () => {
+    let response;
+    const client = createClient(async () => ({ ok: true, json: async () => response }));
+    client.run("currentRoom.status = 'finished'; gameState.is_game_over = true;");
+    response = {
+        room: { status: 'playing' }, players: [],
+        game_state: client.run("({ ...gameState, round_id: 'new_round', started_at: 200, version: 1, is_game_over: false })"),
+    };
+
+    await client.run('fetchRoomState()');
+
+    assert.equal(client.run('gameState.round_id'), 'new_round');
+    assert.equal(client.run('gameState.is_game_over'), false);
+    assert.equal(client.run('currentRoom.status'), 'playing');
+});

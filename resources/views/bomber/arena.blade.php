@@ -427,6 +427,13 @@
 
         let serverClockOffset = 0;
         let lastProcessedVersion = (gameState && gameState.version) ? gameState.version : 0;
+        let roundGeneration = 0;
+        let countdownInterval = null;
+        let isCountingDown = false;
+        let rematchInFlight = false;
+        let roomStateInFlight = false;
+        const processedEventIds = new Set();
+        const detonatedBombIds = new Set();
 
         function syncServerTime(serverUnixTimestamp) {
             if (typeof serverUnixTimestamp === 'number' && serverUnixTimestamp > 0) {
@@ -501,6 +508,9 @@
             updateLobbyView();
             initKeyboard();
             initTouchControls();
+            setInterval(() => {
+                if (currentRoom.status !== 'playing') fetchRoomState();
+            }, 2000);
 
             if (window.lucide && window.lucide.createIcons) {
                 window.lucide.createIcons();
@@ -508,6 +518,10 @@
 
             if (currentRoom.status === 'playing' && gameState) {
                 startGameLoop();
+            }
+            if (gameState && gameState.is_game_over) {
+                gameState.is_game_over = false;
+                handleIncomingEvent({ type: 'game_over', data: { round_id: gameState.round_id, winner_id: gameState.winner_id, finish_reason: gameState.finish_reason, players: gameState.players } });
             }
         });
 
@@ -549,16 +563,24 @@
         function handleIncomingEvent(e) {
             const { type, data } = e;
 
+            if (type === 'game_started') {
+                if (!data.state || (gameState && data.state.started_at < gameState.started_at)) return;
+                if (gameState && data.state.round_id === gameState.round_id && currentRoom.status === 'playing') return;
+            } else if (data && data.round_id && (!gameState || data.round_id !== gameState.round_id)) {
+                return;
+            }
+
+            if (data && data.event_id) {
+                if (processedEventIds.has(data.event_id)) return;
+                processedEventIds.add(data.event_id);
+            }
+
             if (data && data.server_time) {
                 syncServerTime(data.server_time);
             }
 
             if (data && typeof data.version === 'number') {
-                if (data.version < lastProcessedVersion && type !== 'game_started' && type !== 'game_over') {
-                    // Stale or out-of-order event, ignore
-                    return;
-                }
-                lastProcessedVersion = data.version;
+                lastProcessedVersion = Math.max(lastProcessedVersion, data.version);
             }
 
             switch (type) {
@@ -569,7 +591,20 @@
                     fetchRoomState();
                     break;
                 case 'game_started':
+                    stopRound();
+                    roundGeneration++;
+                    if (actionRequestController) actionRequestController.abort();
+                    if (tickRequestController) tickRequestController.abort();
+                    isFlushingActions = false;
+                    serverTickInFlight = false;
+                    processedEventIds.clear();
+                    detonatedBombIds.clear();
                     gameState = data.state;
+                    lastProcessedVersion = gameState.version || 1;
+                    lastMoveTime = 0;
+                    lastServerTickTime = 0;
+                    pendingActionQueue = [];
+                    if (gameRenderer) gameRenderer.activeExplosions = [];
                     currentRoom.status = 'playing';
                     remainingSeconds = data.duration || 180;
                     if (gameRenderer) gameRenderer.invalidateBoard();
@@ -585,6 +620,15 @@
                     break;
                 case 'player_moved':
                     if (gameState && gameState.players[data.player_id]) {
+                        const player = gameState.players[data.player_id];
+                        if (data.version && data.version < (player._lastMoveVersion || 0)) break;
+                        player._lastMoveVersion = data.version || 0;
+                        if (data.stats) {
+                            player.speed = data.stats.speed;
+                            player.max_bombs = data.stats.max_bombs;
+                            player.bomb_range = data.stats.bomb_range;
+                            player.kills = data.stats.kills;
+                        }
                         // Only update other players! NEVER overwrite our own local position with WebSocket echo
                         if (data.player_id !== CURRENT_PLAYER_ID) {
                             gameState.players[data.player_id].x = data.x;
@@ -603,6 +647,7 @@
                     break;
                 case 'bomb_placed':
                     if (gameState && data.bomb) {
+                        if (detonatedBombIds.has(data.bomb.id) || gameState.is_game_over) break;
                         if (!gameState.bombs) gameState.bombs = {};
                         // If placed by local player, remove optimistic placeholder
                         if (data.bomb.owner_id === CURRENT_PLAYER_ID) {
@@ -623,9 +668,11 @@
                     break;
                 case 'bomb_exploded':
                     if (gameState) {
+                        detonatedBombIds.add(data.root_bomb_id);
                         delete gameState.bombs[data.root_bomb_id];
                         if (data.detonated_bomb_ids) {
                             data.detonated_bomb_ids.forEach(id => {
+                                detonatedBombIds.add(id);
                                 delete gameState.bombs[id];
                             });
                         }
@@ -657,17 +704,6 @@
                             });
                         }
 
-                        // Remove any bomb caught in explosion area
-                        if (data.explosion_tiles && gameState.bombs) {
-                            data.explosion_tiles.forEach(t => {
-                                Object.keys(gameState.bombs).forEach(bId => {
-                                    if (gameState.bombs[bId].x === t.x && gameState.bombs[bId].y === t.y) {
-                                        delete gameState.bombs[bId];
-                                    }
-                                });
-                            });
-                        }
-
                         // Eliminations
                         if (data.eliminated_players) {
                             data.eliminated_players.forEach(p => {
@@ -685,28 +721,63 @@
                     }
                     break;
                 case 'game_over':
+                    if (gameState && gameState.is_game_over) break;
+                    if (data.players) gameState.players = data.players;
+                    gameState.is_game_over = true;
+                    gameState.winner_id = data.winner_id;
+                    gameState.finish_reason = data.finish_reason;
+                    currentRoom.status = data.finish_reason === 'ADMIN_CANCELLED' ? 'cancelled' : 'finished';
+                    stopRound();
+                    updateHud();
                     showGameOverModal(data);
-                    if (sfx) sfx.playVictory();
-                    haptics.victory();
+                    if (data.winner_id) {
+                        if (sfx) sfx.playVictory();
+                        haptics.victory();
+                    }
                     break;
             }
         }
 
         async function fetchRoomState() {
+            if (roomStateInFlight) return;
+            roomStateInFlight = true;
+            const generation = roundGeneration;
             try {
-                const res = await fetch(`/api/rooms/${ROOM_CODE}/state`);
+                const res = await fetch(`/api/rooms/${ROOM_CODE}/state`, { signal: AbortSignal.timeout(5000) });
                 const data = await res.json();
+                if (!res.ok || generation !== roundGeneration) return;
+                if (data.game_state && gameState && data.game_state.started_at < gameState.started_at) return;
+                if (data.game_state && gameState && data.game_state.round_id === gameState.round_id && data.game_state.version < lastProcessedVersion) return;
                 currentRoom = data.room;
                 currentRoom.players = data.players;
-                gameState = data.game_state;
+                applyStateSnapshot(data.game_state);
                 if (data.server_time) syncServerTime(data.server_time);
                 if (gameState && typeof gameState.version === 'number') {
-                    lastProcessedVersion = gameState.version;
+                    lastProcessedVersion = Math.max(lastProcessedVersion, gameState.version);
                 }
                 updateLobbyView();
             } catch (err) {
                 console.error(err);
+            } finally {
+                roomStateInFlight = false;
             }
+        }
+
+        function applyStateSnapshot(state) {
+            if (!state) return;
+            if (!gameState || state.round_id !== gameState.round_id) {
+                handleIncomingEvent({ type: 'game_started', data: { state: { ...state, is_game_over: false }, rules: state.rules, duration: state.duration_seconds } });
+                if (state.is_game_over && gameState.round_id === state.round_id) applyStateSnapshot(state);
+                return;
+            }
+            if (state.version < lastProcessedVersion) return;
+            if (state.is_game_over && !gameState.is_game_over) {
+                handleIncomingEvent({ type: 'game_over', data: { round_id: state.round_id, winner_id: state.winner_id, finish_reason: state.finish_reason, players: state.players } });
+            }
+            if (isFlushingActions || pendingActionQueue.length > 0) return;
+            gameState = state;
+            lastProcessedVersion = state.version;
+            updateHud();
         }
 
         function updateLobbyView() {
@@ -809,6 +880,8 @@
                 if (!data.success) {
                     alert(data.error || 'No se pudo iniciar');
                     btn.disabled = false;
+                } else {
+                    handleIncomingEvent({ type: 'game_started', data: { state: data.state, server_time: data.server_time, rules: data.state.rules, duration: data.state.duration_seconds } });
                 }
             } catch (err) {
                 console.error(err);
@@ -817,6 +890,8 @@
         }
 
         function runCountdown(callback, countdownSecs = 3) {
+            if (countdownInterval) clearInterval(countdownInterval);
+            isCountingDown = countdownSecs > 0;
             const overlay = document.getElementById('countdown-overlay');
             const num = document.getElementById('countdown-number');
             if (countdownSecs <= 0) {
@@ -829,7 +904,7 @@
             num.innerText = count;
             if (sfx) sfx.playCountdownTick();
 
-            const interval = setInterval(() => {
+            countdownInterval = setInterval(() => {
                 count--;
                 if (count > 0) {
                     num.innerText = count;
@@ -840,7 +915,9 @@
                     haptics.heavy();
                     if (sfx) sfx.playCountdownTick();
                 } else {
-                    clearInterval(interval);
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
+                    isCountingDown = false;
                     overlay.classList.add('hidden');
                     if (callback) callback();
                 }
@@ -898,7 +975,6 @@
             window.addEventListener('keydown', (e) => {
                 if (!gameState || currentRoom.status !== 'playing') return;
                 const now = performance.now();
-                if (now - lastMoveTime < 90) return;
 
                 let dir = null;
                 if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') dir = 'up';
@@ -908,6 +984,7 @@
 
                 if (dir) {
                     e.preventDefault();
+                    if (now - lastMoveTime < 90) return;
                     lastMoveTime = now;
                     predictAndMove(dir);
                 } else if (e.code === 'Space') {
@@ -943,6 +1020,7 @@
         // Unified batched action pipeline for 0ms responsive gameplay
         let pendingActionQueue = [];
         let isFlushingActions = false;
+        let actionRequestController = null;
 
         function enqueueAction(action) {
             pendingActionQueue.push(action);
@@ -954,14 +1032,25 @@
             isFlushingActions = true;
 
             const batch = pendingActionQueue.splice(0, 40);
+            const generation = roundGeneration;
+            const roundId = gameState.round_id;
+            actionRequestController = new AbortController();
 
             try {
                 const res = await fetch(`/api/rooms/${ROOM_CODE}/actions`, {
                     method: 'POST',
+                    signal: AbortSignal.any([actionRequestController.signal, AbortSignal.timeout(5000)]),
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
-                    body: JSON.stringify({ actions: batch })
+                    body: JSON.stringify({ actions: batch, round_id: roundId })
                 });
                 const data = await res.json();
+                if (generation !== roundGeneration) return;
+                batch.forEach(action => {
+                    if (action.temp_id && gameState && gameState.bombs) delete gameState.bombs[action.temp_id];
+                });
+                if (data.server_time) syncServerTime(data.server_time);
+                (data.events || []).forEach(handleIncomingEvent);
+                if (data.stale_round || data.state?.is_game_over) applyStateSnapshot(data.state);
                 if (data && data.success) {
                     if (data.bombs && data.bombs.length > 0 && gameState && gameState.bombs) {
                         data.bombs.forEach(b => {
@@ -969,7 +1058,9 @@
                                 delete gameState.bombs[b.temp_id];
                             }
                             b.local_planted_at = performance.now();
-                            gameState.bombs[b.id] = b;
+                            if (!gameState.is_game_over && !detonatedBombIds.has(b.id)) {
+                                gameState.bombs[b.id] = b;
+                            }
                         });
                     }
                     // Authoritative position reconciliation: only once pending input queue is fully drained
@@ -988,18 +1079,23 @@
                     }
                 }
             } catch (err) {
+                if (generation === roundGeneration && gameState && gameState.bombs) {
+                    batch.forEach(action => { if (action.temp_id) delete gameState.bombs[action.temp_id]; });
+                }
                 console.warn('Network action dispatch:', err);
             } finally {
-                isFlushingActions = false;
-                if (pendingActionQueue.length > 0) {
-                    flushActions();
+                if (generation === roundGeneration) {
+                    isFlushingActions = false;
+                    if (pendingActionQueue.length > 0) {
+                        flushActions();
+                    }
                 }
             }
         }
 
         // Client-side prediction for instantaneous 0ms response
         function predictAndMove(inputDir) {
-            if (!gameState || !gameState.players || currentRoom.status !== 'playing') return;
+            if (!gameState || !gameState.players || currentRoom.status !== 'playing' || isCountingDown) return;
             const me = gameState.players[CURRENT_PLAYER_ID];
             if (!me || !me.alive) return;
 
@@ -1101,7 +1197,7 @@
         }
 
         function sendBomb() {
-            if (!gameState || !gameState.players || currentRoom.status !== 'playing') return;
+            if (!gameState || !gameState.players || currentRoom.status !== 'playing' || isCountingDown) return;
             const me = gameState.players[CURRENT_PLAYER_ID];
             if (!me || !me.alive) return;
 
@@ -1139,8 +1235,8 @@
                 y: me.y,
                 owner_id: CURRENT_PLAYER_ID,
                 range: me.bomb_range || 2,
-                planted_at: Date.now() / 1000,
-                explodes_at: (Date.now() / 1000) + 2.0,
+                planted_at: getCurrentServerTime(),
+                explodes_at: getCurrentServerTime() + Math.max(0.5, (gameState.rules?.bomb_fuse_ms ?? 2000) / 1000),
                 local_planted_at: performance.now(),
                 _optimistic: true
             };
@@ -1155,56 +1251,28 @@
             enqueueAction({ type: 'bomb', temp_id: tempId });
         }
 
-        // Active bomb detonation checker running on client loop with absolute server time
-        function checkActiveBombs() {
-            if (!gameState || !gameState.bombs) return;
-            const curServerTime = getCurrentServerTime();
-
-            Object.values(gameState.bombs).forEach(b => {
-                if (b._optimistic) return; // Wait for authoritative server ID
-
-                const explodesAt = b.explodes_at || (b.planted_at ? (b.planted_at + 2.0) : (curServerTime + 2.0));
-                const amOwner = b.owner_id === CURRENT_PLAYER_ID;
-
-                // Server is authoritative. Client pings detonate only when fuse has expired:
-                const shouldTrigger = (amOwner && curServerTime >= explodesAt) ||
-                                      (isHost && curServerTime >= (explodesAt + 0.15)) ||
-                                      (curServerTime >= (explodesAt + 0.35));
-
-                if (shouldTrigger && !b._triggering) {
-                    b._triggering = true;
-                    triggerDetonation(b.id).finally(() => {
-                        setTimeout(() => {
-                            if (gameState.bombs && gameState.bombs[b.id]) {
-                                b._triggering = false;
-                            }
-                        }, 300);
-                    });
-                }
-            });
-        }
-
-        async function triggerDetonation(bombId) {
-            try {
-                await fetch(`/api/rooms/${ROOM_CODE}/detonate`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
-                    body: JSON.stringify({ bomb_id: bombId })
-                });
-            } catch (err) {
-                console.error(err);
-            }
-        }
-
         async function requestRematch() {
+            if (rematchInFlight) return;
+            rematchInFlight = true;
             haptics.heavy();
             try {
-                await fetch(`/api/rooms/${ROOM_CODE}/rematch`, {
+                const res = await fetch(`/api/rooms/${ROOM_CODE}/rematch`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN }
+                    signal: AbortSignal.timeout(10000),
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
+                    body: JSON.stringify({ round_id: gameState?.round_id })
                 });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    alert(data.error || 'No se pudo iniciar la revancha');
+                    return;
+                }
+                handleIncomingEvent({ type: 'game_started', data: { state: data.state, server_time: data.server_time, rules: data.state.rules, duration: data.state.duration_seconds } });
             } catch (err) {
                 console.error(err);
+                alert('No se pudo conectar para iniciar la revancha. Intenta nuevamente.');
+            } finally {
+                rematchInFlight = false;
             }
         }
 
@@ -1230,7 +1298,7 @@
             } else if (reason === 'TIME_EXPIRED') {
                 title.innerText = '¡TIEMPO AGOTADO!';
                 title.className = 'arcade-font text-3xl sm:text-5xl font-black text-amber-400 mb-1';
-                subtitle.innerText = 'Se cumplieron los 3 minutos sin un único vencedor (Empate)';
+                subtitle.innerText = 'Se agotó el tiempo de la ronda sin un único vencedor (Empate)';
                 if (podium) podium.innerHTML = '';
             } else if (reason === 'ADMIN_CANCELLED') {
                 title.innerText = 'PARTIDA CANCELADA';
@@ -1269,24 +1337,42 @@
         // Canvas Rendering Loop via Modular GameRenderer
         let animFrameId = null;
         let lastServerTickTime = 0;
+        let serverTickInFlight = false;
+        let serverTickInterval = null;
+        let tickRequestController = null;
+
+        function stopRound() {
+            if (animFrameId) cancelAnimationFrame(animFrameId);
+            animFrameId = null;
+            if (timerInterval) clearInterval(timerInterval);
+            if (countdownInterval) clearInterval(countdownInterval);
+            if (serverTickInterval) clearInterval(serverTickInterval);
+            timerInterval = null;
+            countdownInterval = null;
+            serverTickInterval = null;
+            isCountingDown = false;
+            pendingActionQueue = [];
+            document.getElementById('countdown-overlay').classList.add('hidden');
+        }
 
         function startGameLoop() {
             startTimer();
             updateHud();
             if (animFrameId) cancelAnimationFrame(animFrameId);
+            if (serverTickInterval) clearInterval(serverTickInterval);
+            serverTickInterval = setInterval(() => {
+                if (!gameState || gameState.is_game_over || currentRoom.status !== 'playing') return;
+                const now = performance.now();
+                const tickInterval = isHost && Object.values(gameState.bombs || {}).some(bomb => !bomb._optimistic) ? 250 : 1000;
+                if (now - lastServerTickTime >= tickInterval) {
+                    lastServerTickTime = now;
+                    sendServerTick();
+                }
+            }, 250);
 
             function loop() {
-                checkActiveBombs();
+                if (!gameState || gameState.is_game_over || currentRoom.status !== 'playing') return;
                 const curServerTime = getCurrentServerTime();
-
-                // Periodic host tick (heartbeat) when active bombs exist to guarantee server simulation progression
-                if (isHost && gameState && gameState.bombs && Object.keys(gameState.bombs).length > 0) {
-                    const now = performance.now();
-                    if (now - lastServerTickTime > 250) {
-                        lastServerTickTime = now;
-                        sendServerTick();
-                    }
-                }
 
                 if (gameRenderer) {
                     gameRenderer.render(gameState, CURRENT_PLAYER_ID, performance.now() / 1000, curServerTime);
@@ -1297,12 +1383,26 @@
         }
 
         async function sendServerTick() {
+            if (serverTickInFlight || !gameState || gameState.is_game_over) return;
+            serverTickInFlight = true;
+            const generation = roundGeneration;
+            tickRequestController = new AbortController();
             try {
-                await fetch(`/api/rooms/${ROOM_CODE}/tick`, {
+                const res = await fetch(`/api/rooms/${ROOM_CODE}/tick`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN }
+                    signal: AbortSignal.any([tickRequestController.signal, AbortSignal.timeout(5000)]),
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
+                    body: JSON.stringify({ round_id: gameState.round_id })
                 });
+                const data = await res.json();
+                if (generation !== roundGeneration) return;
+                if (data.server_time) syncServerTime(data.server_time);
+                (data.events || []).forEach(handleIncomingEvent);
+                applyStateSnapshot(data.state);
             } catch (err) {}
+            finally {
+                if (generation === roundGeneration) serverTickInFlight = false;
+            }
         }
 
         function escapeHtml(text) {

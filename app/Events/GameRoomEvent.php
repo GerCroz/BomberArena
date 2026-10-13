@@ -3,18 +3,21 @@
 namespace App\Events;
 
 use Illuminate\Broadcasting\Channel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
-use Illuminate\Queue\SerializesModels;
-use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Broadcasting\InteractsWithSockets;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
-class GameRoomEvent implements ShouldBroadcast
+class GameRoomEvent implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public string $roomCode;
+
     public string $type;
+
     public array $data;
+
     public float $timestamp;
 
     public function __construct(string $roomCode, string $type, array $data = [])
@@ -27,7 +30,7 @@ class GameRoomEvent implements ShouldBroadcast
 
     public function broadcastOn(): array
     {
-        return [new Channel('arena.' . $this->roomCode)];
+        return [new Channel('arena.'.$this->roomCode)];
     }
 
     public function broadcastAs(): string

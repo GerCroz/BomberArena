@@ -119,9 +119,10 @@ class BomberGameEngine
         }
 
         $duration = (int) ($rules['round_duration_seconds'] ?? 180);
-        $startedAt = microtime(true);
+        $startedAt = (float) now()->format('U.u');
 
         return [
+            'round_id' => bin2hex(random_bytes(16)),
             'seed' => $seed,
             'version' => 1,
             'grid' => $grid,
@@ -291,7 +292,7 @@ class BomberGameEngine
         $fuseSeconds = max(0.5, $fuseMs / 1000.0);
 
         $bombId = 'bomb_'.uniqid().'_'.mt_rand(100, 999);
-        $plantedAt = microtime(true);
+        $plantedAt = (float) now()->format('U.u');
         $explodesAt = $plantedAt + $fuseSeconds;
 
         $bomb = [
@@ -318,7 +319,7 @@ class BomberGameEngine
     /**
      * Detonate a bomb and resolve cross-fire, block destruction, chain reactions, and eliminations.
      */
-    public function detonateBomb(array &$state, string $bombId): array
+    public function detonateBomb(array &$state, string $bombId, bool $evaluateOutcome = true): array
     {
         if (! isset($state['bombs'][$bombId]) || ($state['bombs'][$bombId]['state'] ?? 'active') !== 'active') {
             return ['success' => false, 'error' => 'Bomba no encontrada o ya detonada'];
@@ -453,7 +454,9 @@ class BomberGameEngine
         $state['stats']['total_eliminations'] += count($eliminatedPlayers);
 
         // Evaluate match termination rule centrally
-        $this->evaluateMatchOutcome($state);
+        if ($evaluateOutcome) {
+            $this->evaluateMatchOutcome($state);
+        }
 
         $state['version']++;
 
@@ -476,7 +479,7 @@ class BomberGameEngine
      */
     public function checkAndDetonateExpiredBombs(array &$state, ?float $currentTime = null): array
     {
-        $now = $currentTime ?? microtime(true);
+        $now = $currentTime ?? (float) now()->format('U.u');
         $results = [];
 
         if (empty($state['bombs'])) {
@@ -486,11 +489,21 @@ class BomberGameEngine
         $bombIds = array_keys($state['bombs']);
         foreach ($bombIds as $id) {
             if (isset($state['bombs'][$id]) && ($state['bombs'][$id]['state'] ?? 'active') === 'active' && $now >= $state['bombs'][$id]['explodes_at']) {
-                $res = $this->detonateBomb($state, $id);
+                $res = $this->detonateBomb($state, $id, false);
                 if ($res['success']) {
                     $results[] = $res;
                 }
             }
+        }
+
+        if ($results !== []) {
+            $this->evaluateMatchOutcome($state, $now);
+            foreach ($results as &$result) {
+                $result['is_game_over'] = $state['is_game_over'];
+                $result['winner_id'] = $state['winner_id'];
+                $result['finish_reason'] = $state['finish_reason'];
+            }
+            unset($result);
         }
 
         return $results;
@@ -510,7 +523,7 @@ class BomberGameEngine
             return true;
         }
 
-        $now = $currentTime ?? microtime(true);
+        $now = $currentTime ?? (float) now()->format('U.u');
         $rules = $state['rules'] ?? [];
         $initialCount = (int) ($state['initial_player_count'] ?? count($state['players']));
 

@@ -2,15 +2,17 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use Illuminate\Http\JsonResponse;
-use App\Services\RoomService;
-use App\Services\PlayerIdentityService;
 use App\Models\Room;
+use App\Services\PlayerIdentityService;
+use App\Services\RoomService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class BomberGameController extends Controller
 {
     protected RoomService $roomService;
+
     protected PlayerIdentityService $identity;
 
     public function __construct(RoomService $roomService, PlayerIdentityService $identity)
@@ -39,6 +41,7 @@ class BomberGameController extends Controller
     public function arena(Request $request, string $code)
     {
         $room = Room::with('players')->where('code', strtoupper($code))->firstOrFail();
+        $room->game_state = Cache::get("arena_state_{$room->code}") ?? $room->game_state;
         $playerId = $this->identity->getOrCreatePlayerId($request);
         $nickname = $this->identity->getNickname($request);
 
@@ -64,7 +67,7 @@ class BomberGameController extends Controller
             'player_id' => $playerId,
             'redirect' => route('arena', ['code' => $room->code]),
         ])->cookie(PlayerIdentityService::COOKIE_NAME, $playerId, 60 * 24 * 7)
-          ->cookie(PlayerIdentityService::NICKNAME_COOKIE, $nickname, 60 * 24 * 7);
+            ->cookie(PlayerIdentityService::NICKNAME_COOKIE, $nickname, 60 * 24 * 7);
     }
 
     /**
@@ -77,11 +80,11 @@ class BomberGameController extends Controller
         ]);
 
         $playerId = $this->identity->getOrCreatePlayerId($request);
-        $nickname = $this->identity->getNickname($request, 'Piloto_' . rand(100, 999));
+        $nickname = $this->identity->getNickname($request, 'Piloto_'.rand(100, 999));
 
         $result = $this->roomService->joinRoom($request->code, $playerId, $nickname);
 
-        if (!$result['success']) {
+        if (! $result['success']) {
             return response()->json($result, 422);
         }
 
@@ -91,7 +94,7 @@ class BomberGameController extends Controller
             'player' => $result['player'],
             'redirect' => route('arena', ['code' => $result['room']->code]),
         ])->cookie(PlayerIdentityService::COOKIE_NAME, $playerId, 60 * 24 * 7)
-          ->cookie(PlayerIdentityService::NICKNAME_COOKIE, $nickname, 60 * 24 * 7);
+            ->cookie(PlayerIdentityService::NICKNAME_COOKIE, $nickname, 60 * 24 * 7);
     }
 
     /**
@@ -100,12 +103,12 @@ class BomberGameController extends Controller
     public function getState(string $code): JsonResponse
     {
         $room = Room::with('players')->where('code', strtoupper($code))->first();
-        if (!$room) {
+        if (! $room) {
             return response()->json(['error' => 'Sala no encontrada'], 404);
         }
 
         $cleanCode = strtoupper($code);
-        $activeState = \Illuminate\Support\Facades\Cache::get("arena_state_{$cleanCode}") ?? $room->game_state;
+        $activeState = Cache::get("arena_state_{$cleanCode}") ?? $room->game_state;
 
         return response()->json([
             'room' => $room,
@@ -169,6 +172,7 @@ class BomberGameController extends Controller
     public function actions(Request $request, string $code): JsonResponse
     {
         $validated = $request->validate([
+            'round_id' => ['nullable', 'string', 'max:64'],
             'actions' => ['required', 'array', 'min:1', 'max:40'],
             'actions.*.type' => ['required', 'string', 'in:move,bomb'],
             'actions.*.direction' => ['nullable', 'string', 'in:up,down,left,right'],
@@ -176,7 +180,7 @@ class BomberGameController extends Controller
         ]);
 
         $playerId = $this->identity->getOrCreatePlayerId($request);
-        $result = $this->roomService->handleActions($code, $playerId, $validated['actions']);
+        $result = $this->roomService->handleActions($code, $playerId, $validated['actions'], $validated['round_id'] ?? null);
 
         return response()->json($result, $result['success'] ? 200 : 422);
     }
@@ -186,7 +190,8 @@ class BomberGameController extends Controller
      */
     public function tick(Request $request, string $code): JsonResponse
     {
-        $result = $this->roomService->tickRoom($code);
+        $validated = $request->validate(['round_id' => ['nullable', 'string', 'max:64']]);
+        $result = $this->roomService->tickRoom($code, $validated['round_id'] ?? null);
 
         return response()->json($result, $result['success'] ? 200 : 422);
     }
@@ -196,11 +201,12 @@ class BomberGameController extends Controller
      */
     public function detonate(Request $request, string $code): JsonResponse
     {
-        $request->validate([
+        $validated = $request->validate([
             'bomb_id' => ['required', 'string'],
+            'round_id' => ['nullable', 'string', 'max:64'],
         ]);
 
-        $result = $this->roomService->detonateBomb($code, $request->bomb_id);
+        $result = $this->roomService->detonateBomb($code, $validated['bomb_id'], $validated['round_id'] ?? null);
 
         return response()->json($result, $result['success'] ? 200 : 422);
     }
@@ -210,8 +216,9 @@ class BomberGameController extends Controller
      */
     public function rematch(Request $request, string $code): JsonResponse
     {
+        $validated = $request->validate(['round_id' => ['nullable', 'string', 'max:64']]);
         $playerId = $this->identity->getOrCreatePlayerId($request);
-        $result = $this->roomService->requestRematch($code, $playerId);
+        $result = $this->roomService->requestRematch($code, $playerId, $validated['round_id'] ?? null);
 
         return response()->json($result, $result['success'] ? 200 : 422);
     }
