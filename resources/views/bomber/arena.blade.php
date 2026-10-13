@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Sala {{ $room->code }} — Bomber Arena</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,7 +18,10 @@
             --card-bg: rgba(13, 17, 38, 0.9);
             --border-glow: rgba(0, 240, 255, 0.3);
         }
-        * { box-sizing: border-box; touch-action: manipulation; }
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
         body {
             background: #050711;
             margin: 0;
@@ -29,54 +32,143 @@
             flex-direction: column;
             overflow-x: hidden;
             user-select: none;
+            -webkit-user-select: none;
         }
         .arcade-font {
             font-family: 'Orbitron', monospace;
             letter-spacing: 1px;
         }
+
+        /* Responsive Canvas Wrapper */
         .canvas-container {
             position: relative;
-            box-shadow: 0 0 40px rgba(0, 240, 255, 0.2);
+            box-shadow: 0 0 30px rgba(0, 240, 255, 0.25);
             border: 2px solid rgba(0, 240, 255, 0.4);
             border-radius: 12px;
             overflow: hidden;
             background: #02040a;
-            max-width: 100%;
+            width: 100%;
+            max-width: 650px;
+            aspect-ratio: 13 / 11;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            touch-action: none;
         }
         #game-canvas {
+            width: 100%;
+            height: auto;
             display: block;
-            margin: 0 auto;
+            aspect-ratio: 13 / 11;
+            object-fit: contain;
         }
+
+        /* Ergonomic Cyberpunk Mobile Controls */
+        .gamepad-container {
+            width: 100%;
+            max-width: 650px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            margin-top: 6px;
+            touch-action: none;
+        }
+
+        .dpad-cluster {
+            display: grid;
+            grid-template-columns: repeat(3, 48px);
+            grid-template-rows: repeat(3, 48px);
+            gap: 6px;
+            position: relative;
+        }
+        @media (min-width: 480px) {
+            .dpad-cluster {
+                grid-template-columns: repeat(3, 54px);
+                grid-template-rows: repeat(3, 54px);
+                gap: 8px;
+            }
+        }
+
         .touch-pad-btn {
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: linear-gradient(145deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95));
+            border: 1.5px solid rgba(0, 240, 255, 0.35);
             border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 24px;
-            color: #fff;
+            font-size: 20px;
+            color: #00f0ff;
             user-select: none;
-            active-background: rgba(0, 240, 255, 0.4);
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            transition: transform 0.08s ease, background-color 0.08s ease, box-shadow 0.08s ease;
         }
-        .touch-pad-btn:active {
-            background: rgba(0, 240, 255, 0.3);
+        .touch-pad-btn:active, .touch-pad-btn.is-active {
+            transform: scale(0.90);
+            background: rgba(0, 240, 255, 0.35);
             border-color: #00f0ff;
+            box-shadow: 0 0 16px rgba(0, 240, 255, 0.7), inset 0 2px 6px rgba(0, 0, 0, 0.6);
+            color: #ffffff;
         }
-        .bomb-touch-btn {
-            background: linear-gradient(135deg, #ff007f, #b30059);
-            border: 2px solid #ff007f;
-            box-shadow: 0 0 20px rgba(255, 0, 127, 0.5);
-            border-radius: 50%;
+
+        .dpad-center {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 32px;
-            color: #fff;
+            color: rgba(255, 255, 255, 0.2);
+            font-size: 10px;
         }
-        .bomb-touch-btn:active {
-            transform: scale(0.92);
+
+        /* Giant Tactile Bomb Action Button */
+        .bomb-cluster {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
         }
+        .bomb-touch-btn {
+            width: 78px;
+            height: 78px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 35% 35%, #ff2a8d 0%, #b30059 70%, #660033 100%);
+            border: 3px solid #ff007f;
+            box-shadow: 0 0 22px rgba(255, 0, 127, 0.55), inset 0 2px 6px rgba(255, 255, 255, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 34px;
+            color: #ffffff;
+            cursor: pointer;
+            transition: transform 0.08s ease, box-shadow 0.08s ease;
+            position: relative;
+        }
+        @media (min-width: 480px) {
+            .bomb-touch-btn {
+                width: 86px;
+                height: 86px;
+                font-size: 38px;
+            }
+        }
+        .bomb-touch-btn:active, .bomb-touch-btn.is-active {
+            transform: scale(0.88);
+            box-shadow: 0 0 35px rgba(255, 0, 127, 0.9), inset 0 4px 12px rgba(0, 0, 0, 0.8);
+            background: radial-gradient(circle at 50% 50%, #ff007f 0%, #800040 100%);
+        }
+        .bomb-label {
+            font-family: 'Orbitron', monospace;
+            font-size: 10px;
+            font-weight: 700;
+            color: #ff007f;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
         .glass-panel {
             background: rgba(15, 23, 42, 0.85);
             backdrop-filter: blur(12px);
@@ -91,29 +183,33 @@
         }
     </style>
 </head>
-<body class="p-2 md:p-4">
+<body class="p-1 sm:p-3">
 
-    <!-- Top Bar Navigation & Info -->
-    <header class="w-full max-w-5xl mx-auto flex items-center justify-between py-2 px-4 rounded-xl glass-panel mb-3">
-        <div class="flex items-center gap-3">
+    <!-- Top Bar Navigation & Info (Compact on mobile) -->
+    <header class="w-full max-w-5xl mx-auto flex items-center justify-between py-1.5 px-3 rounded-xl glass-panel mb-2">
+        <div class="flex items-center gap-2">
             <a href="{{ route('lobby') }}" class="text-xs uppercase font-bold text-slate-400 hover:text-cyan-400 transition-colors">
                 ← Lobby
             </a>
-            <div class="h-4 w-px bg-slate-700"></div>
-            <div class="arcade-font text-sm font-bold text-cyan-400 flex items-center gap-2">
+            <div class="h-3 w-px bg-slate-700"></div>
+            <div class="arcade-font text-xs sm:text-sm font-bold text-cyan-400 flex items-center gap-1.5">
                 <span>SALA:</span>
-                <span class="bg-cyan-950 px-2.5 py-0.5 rounded border border-cyan-500/40 text-white tracking-widest" id="header-room-code">{{ $room->code }}</span>
+                <span class="bg-cyan-950 px-2 py-0.5 rounded border border-cyan-500/40 text-white tracking-widest" id="header-room-code">{{ $room->code }}</span>
                 <button type="button" onclick="copyCode()" class="text-xs text-slate-400 hover:text-white" title="Copiar código">📋</button>
             </div>
         </div>
 
-        <div class="flex items-center gap-3">
-            <div class="flex items-center gap-2 text-xs font-semibold px-3 py-1 rounded-full bg-slate-900 border border-slate-700">
+        <div class="flex items-center gap-2">
+            <div class="flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700">
                 <span class="w-2 h-2 rounded-full bg-emerald-400" id="arena-ws-dot"></span>
-                <span id="arena-ws-status">Reverb Conectado</span>
+                <span id="arena-ws-status" class="hidden sm:inline">Reverb Conectado</span>
             </div>
+            <!-- Haptic Vibration Toggle -->
+            <button type="button" id="btn-toggle-haptics" onclick="toggleHaptics()" class="px-2 py-0.5 rounded bg-slate-800 text-[11px] text-cyan-300 border border-slate-700" title="Vibración Háptica">
+                📳 VIB ON
+            </button>
             <!-- Audio Mute Button -->
-            <button type="button" id="btn-toggle-audio" onclick="toggleAudio()" class="px-2.5 py-1 rounded bg-slate-800 text-xs text-slate-300 hover:text-white border border-slate-700" title="Silenciar / Activar sonido">
+            <button type="button" id="btn-toggle-audio" onclick="toggleAudio()" class="px-2 py-0.5 rounded bg-slate-800 text-[11px] text-slate-300 hover:text-white border border-slate-700" title="Silenciar / Activar sonido">
                 🔊
             </button>
         </div>
@@ -123,102 +219,146 @@
     <main class="w-full max-w-5xl mx-auto flex-1 flex flex-col items-center justify-center relative">
 
         <!-- LOBBY WAITING SCREEN (Shown before game start) -->
-        <div id="screen-lobby" class="w-full max-w-2xl glass-panel p-6 md:p-8 rounded-2xl border border-cyan-500/30 text-center {{ $room->status === 'playing' ? 'hidden' : '' }}">
-            <h2 class="arcade-font text-3xl font-black text-white mb-2 tracking-wide">
+        <div id="screen-lobby" class="w-full max-w-2xl glass-panel p-4 sm:p-8 rounded-2xl border border-cyan-500/30 text-center {{ $room->status === 'playing' ? 'hidden' : '' }}">
+            <h2 class="arcade-font text-2xl sm:text-3xl font-black text-white mb-1 tracking-wide">
                 SALA DE ESPERA <span class="text-cyan-400">[{{ $room->code }}]</span>
             </h2>
-            <p class="text-slate-400 text-sm mb-6">Comparte el código con tus contrincantes (2 a 4 jugadores).</p>
+            <p class="text-slate-400 text-xs sm:text-sm mb-5">Comparte el código con tus contrincantes (2 a 4 jugadores).</p>
 
             <!-- Slots Grid -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" id="lobby-slots-grid">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" id="lobby-slots-grid">
                 <!-- Dynamically rendered slots -->
             </div>
 
             <!-- Action buttons -->
-            <div class="flex flex-col sm:flex-row gap-4 justify-center">
+            <div class="flex flex-col sm:flex-row gap-3 justify-center">
                 <button type="button" id="btn-ready-toggle" onclick="toggleReady()"
-                    class="arcade-font px-6 py-3.5 rounded-xl font-bold text-sm tracking-wider uppercase bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 transition-all">
+                    class="arcade-font px-5 py-3 rounded-xl font-bold text-xs sm:text-sm tracking-wider uppercase bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 transition-all">
                     LISTO: <span id="ready-status-text" class="text-red-400">NO</span>
                 </button>
 
                 <button type="button" id="btn-start-game" onclick="startGame()"
-                    class="arcade-font px-8 py-3.5 rounded-xl font-black text-sm tracking-wider uppercase bg-gradient-to-r from-cyan-400 to-blue-600 text-slate-950 shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/60 transition-all disabled:opacity-40 disabled:pointer-events-none">
+                    class="arcade-font px-6 py-3 rounded-xl font-black text-xs sm:text-sm tracking-wider uppercase bg-gradient-to-r from-cyan-400 to-blue-600 text-slate-950 shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/60 transition-all disabled:opacity-40 disabled:pointer-events-none">
                     🚀 INICIAR PARTIDA
                 </button>
             </div>
-            <div id="lobby-warning" class="text-xs text-amber-400 mt-4 font-semibold hidden"></div>
+            <div id="lobby-warning" class="text-xs text-amber-400 mt-3 font-semibold hidden"></div>
         </div>
 
         <!-- PLAYING SCREEN -->
         <div id="screen-game" class="w-full flex flex-col items-center {{ $room->status === 'playing' ? '' : 'hidden' }}">
             
-            <!-- In-game HUD -->
-            <div class="w-full max-w-[650px] flex items-center justify-between mb-2 px-2 text-xs font-bold uppercase tracking-wider">
-                <div class="flex items-center gap-4" id="hud-players">
+            <!-- In-game HUD (Compact) -->
+            <div class="w-full max-w-[650px] flex items-center justify-between mb-1.5 px-1 text-[11px] font-bold uppercase tracking-wider">
+                <div class="flex items-center gap-1.5 overflow-x-auto" id="hud-players">
                     <!-- Dynamic player chips -->
                 </div>
-                <div class="flex items-center gap-2 bg-slate-900/90 px-3 py-1 rounded-lg border border-cyan-500/30">
+                <div class="flex items-center gap-1.5 bg-slate-900/90 px-2 py-0.5 rounded-lg border border-cyan-500/30 shrink-0">
                     <span class="text-slate-400">⏱️</span>
-                    <span class="arcade-font text-cyan-400 text-base" id="game-timer">03:00</span>
+                    <span class="arcade-font text-cyan-400 text-sm" id="game-timer">03:00</span>
                 </div>
             </div>
 
-            <!-- Canvas Container -->
+            <!-- Responsive Canvas Container -->
             <div class="canvas-container">
                 <canvas id="game-canvas" width="650" height="550"></canvas>
 
                 <!-- Countdown Overlay -->
                 <div id="countdown-overlay" class="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center hidden z-20">
-                    <div class="arcade-font text-7xl md:text-9xl font-black text-cyan-400 pulse-text" id="countdown-number">3</div>
+                    <div class="arcade-font text-6xl md:text-9xl font-black text-cyan-400 pulse-text" id="countdown-number">3</div>
                 </div>
 
                 <!-- Match Over Modal -->
-                <div id="gameover-modal" class="absolute inset-0 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center hidden z-30">
-                    <h3 class="arcade-font text-4xl md:text-6xl font-black text-white mb-2" id="gameover-title">¡VICTORIA!</h3>
-                    <p class="text-lg text-cyan-400 font-semibold mb-6" id="gameover-subtitle">Piloto 1 es el último sobreviviente</p>
+                <div id="gameover-modal" class="absolute inset-0 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-4 text-center hidden z-30">
+                    <h3 class="arcade-font text-3xl sm:text-5xl font-black text-white mb-1" id="gameover-title">¡VICTORIA!</h3>
+                    <p class="text-sm sm:text-base text-cyan-400 font-semibold mb-4" id="gameover-subtitle">Piloto 1 es el último sobreviviente</p>
 
                     <!-- Scoreboard -->
-                    <div class="w-full max-w-sm bg-slate-900/80 border border-slate-700 rounded-xl p-4 mb-6 text-sm" id="gameover-stats">
+                    <div class="w-full max-w-sm bg-slate-900/80 border border-slate-700 rounded-xl p-3 mb-4 text-xs" id="gameover-stats">
                         <!-- Stats rows -->
                     </div>
 
-                    <div class="flex gap-4">
-                        <button type="button" onclick="requestRematch()" class="arcade-font px-6 py-3 rounded-xl bg-cyan-400 text-slate-950 font-black text-sm uppercase tracking-wider shadow-lg shadow-cyan-400/40 hover:bg-cyan-300">
+                    <div class="flex gap-3">
+                        <button type="button" onclick="requestRematch()" class="arcade-font px-5 py-2.5 rounded-xl bg-cyan-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-cyan-400/40 hover:bg-cyan-300">
                             🔄 REVANCHA
                         </button>
-                        <a href="{{ route('lobby') }}" class="arcade-font px-6 py-3 rounded-xl bg-slate-800 text-slate-200 font-bold text-sm uppercase tracking-wider hover:bg-slate-700">
-                            SALIR AL LOBBY
+                        <a href="{{ route('lobby') }}" class="arcade-font px-5 py-2.5 rounded-xl bg-slate-800 text-slate-200 font-bold text-xs uppercase tracking-wider hover:bg-slate-700">
+                            LOBBY
                         </a>
                     </div>
                 </div>
             </div>
 
-            <!-- Virtual Mobile Controls (Visible on touch screens / small viewports) -->
-            <div class="w-full max-w-[650px] mt-4 flex items-center justify-between px-4 md:hidden" id="mobile-controls">
-                <!-- D-Pad -->
-                <div class="grid grid-cols-3 gap-2 w-36 h-36">
+            <!-- Ergonomic Touch Controls for Mobile (D-Pad + Haptic Bomb Button) -->
+            <div class="gamepad-container md:hidden" id="mobile-controls">
+                
+                <!-- Directional D-Pad -->
+                <div class="dpad-cluster">
                     <div></div>
-                    <button type="button" class="touch-pad-btn" ontouchstart="sendMove('up'); event.preventDefault();">▲</button>
+                    <button type="button" id="dpad-up" class="touch-pad-btn" aria-label="Arriba">▲</button>
                     <div></div>
-                    <button type="button" class="touch-pad-btn" ontouchstart="sendMove('left'); event.preventDefault();">◀</button>
+                    <button type="button" id="dpad-left" class="touch-pad-btn" aria-label="Izquierda">◀</button>
+                    <div class="dpad-center">●</div>
+                    <button type="button" id="dpad-right" class="touch-pad-btn" aria-label="Derecha">▶</button>
                     <div></div>
-                    <button type="button" class="touch-pad-btn" ontouchstart="sendMove('right'); event.preventDefault();">▶</button>
-                    <div></div>
-                    <button type="button" class="touch-pad-btn" ontouchstart="sendMove('down'); event.preventDefault();">▼</button>
+                    <button type="button" id="dpad-down" class="touch-pad-btn" aria-label="Abajo">▼</button>
                     <div></div>
                 </div>
 
-                <!-- Action Button -->
-                <div class="flex items-center justify-center">
-                    <button type="button" class="bomb-touch-btn w-20 h-20" ontouchstart="sendBomb(); event.preventDefault();">
+                <!-- Giant Bomb Button with Haptics -->
+                <div class="bomb-cluster">
+                    <button type="button" id="dpad-bomb" class="bomb-touch-btn" aria-label="Colocar Bomba">
                         💣
                     </button>
+                    <span class="bomb-label">BOMBA</span>
                 </div>
+
             </div>
 
         </div>
 
     </main>
+
+    <!-- Haptic Vibration Feedback Engine -->
+    <script>
+        class HapticEngine {
+            constructor() {
+                this.enabled = true;
+                this.supported = 'vibrate' in navigator;
+            }
+            toggle() {
+                this.enabled = !this.enabled;
+                const btn = document.getElementById('btn-toggle-haptics');
+                if (btn) {
+                    btn.innerText = this.enabled ? '📳 VIB ON' : '📴 VIB OFF';
+                    btn.className = this.enabled 
+                        ? 'px-2 py-0.5 rounded bg-slate-800 text-[11px] text-cyan-300 border border-slate-700' 
+                        : 'px-2 py-0.5 rounded bg-slate-800 text-[11px] text-slate-500 border border-slate-700';
+                }
+                if (this.enabled) this.light();
+            }
+            light() {
+                if (!this.enabled || !this.supported) return;
+                try { navigator.vibrate(25); } catch (e) {}
+            }
+            heavy() {
+                if (!this.enabled || !this.supported) return;
+                try { navigator.vibrate(55); } catch (e) {}
+            }
+            explosion() {
+                if (!this.enabled || !this.supported) return;
+                try { navigator.vibrate([70, 30, 90]); } catch (e) {}
+            }
+            victory() {
+                if (!this.enabled || !this.supported) return;
+                try { navigator.vibrate([50, 40, 50, 40, 120]); } catch (e) {}
+            }
+        }
+        const haptics = new HapticEngine();
+        function toggleHaptics() {
+            haptics.toggle();
+        }
+    </script>
 
     <!-- Retro Audio Synthesizer (Web Audio API) -->
     <script>
@@ -335,6 +475,7 @@
             initEcho();
             updateLobbyView();
             initKeyboard();
+            initTouchControls();
             if (currentRoom.status === 'playing' && gameState) {
                 startGameLoop();
             }
@@ -342,6 +483,7 @@
 
         function copyCode() {
             navigator.clipboard.writeText(ROOM_CODE);
+            haptics.light();
             alert(`Código ${ROOM_CODE} copiado al portapapeles!`);
         }
 
@@ -379,6 +521,7 @@
                     document.getElementById('screen-lobby').classList.add('hidden');
                     document.getElementById('screen-game').classList.remove('hidden');
                     document.getElementById('gameover-modal').classList.add('hidden');
+                    haptics.heavy();
                     runCountdown(() => {
                         startGameLoop();
                     });
@@ -390,6 +533,9 @@
                         gameState.players[data.player_id].direction = data.direction;
                         if (data.collected_powerup) {
                             sfx.playPowerup();
+                            if (data.player_id === CURRENT_PLAYER_ID) {
+                                haptics.heavy();
+                            }
                             delete gameState.powerups[`${data.x}_${data.y}`];
                         }
                     }
@@ -408,6 +554,7 @@
                     if (gameState) {
                         delete gameState.bombs[data.root_bomb_id];
                         sfx.playExplosion();
+                        haptics.explosion();
 
                         // Destroy blocks
                         data.destroyed_blocks.forEach(b => {
@@ -431,6 +578,9 @@
                                 gameState.players[p.player_id].alive = false;
                             }
                             sfx.playElimination();
+                            if (p.player_id === CURRENT_PLAYER_ID) {
+                                haptics.explosion();
+                            }
                         });
 
                         updateHud();
@@ -438,6 +588,7 @@
                     break;
                 case 'game_over':
                     showGameOverModal(data);
+                    haptics.victory();
                     break;
             }
         }
@@ -472,31 +623,31 @@
             for (let i = 0; i < 4; i++) {
                 const p = currentRoom.players[i];
                 const card = document.createElement('div');
-                card.className = 'p-4 rounded-xl border flex flex-col items-center justify-between min-h-[140px] transition-all ';
+                card.className = 'p-3 rounded-xl border flex flex-col items-center justify-between min-h-[120px] transition-all ';
 
                 if (p) {
                     const c = colorMap[p.color] || colorMap['neon-blue'];
                     card.className += `${c.border} ${c.bg}`;
                     card.innerHTML = `
-                        <div class="text-xs uppercase font-bold tracking-widest ${c.text}">JUGADOR ${i + 1}</div>
-                        <div class="my-2">
-                            <div class="w-12 h-12 rounded-full border-2 ${c.border} flex items-center justify-center text-xl font-black bg-slate-900">
+                        <div class="text-[10px] uppercase font-bold tracking-widest ${c.text}">JUGADOR ${i + 1}</div>
+                        <div class="my-1.5">
+                            <div class="w-10 h-10 rounded-full border-2 ${c.border} flex items-center justify-center text-lg font-black bg-slate-900">
                                 🤖
                             </div>
                         </div>
-                        <div class="text-sm font-bold text-white truncate max-w-[120px]">${escapeHtml(p.nickname)}</div>
-                        <div class="mt-2 text-xs font-semibold ${p.is_ready ? 'text-emerald-400' : 'text-slate-400'}">
-                            ${p.is_host ? '👑 ANFITRIÓN' : (p.is_ready ? '✓ PREPARADO' : '⏳ ESPERANDO')}
+                        <div class="text-xs font-bold text-white truncate max-w-[100px]">${escapeHtml(p.nickname)}</div>
+                        <div class="mt-1.5 text-[10px] font-semibold ${p.is_ready ? 'text-emerald-400' : 'text-slate-400'}">
+                            ${p.is_host ? '👑 ANFITRIÓN' : (p.is_ready ? '✓ LISTO' : '⏳ ESPERA')}
                         </div>
                     `;
                 } else {
                     card.className += 'border-slate-800 bg-slate-900/40 text-slate-600 border-dashed';
                     card.innerHTML = `
-                        <div class="text-xs uppercase font-bold tracking-widest text-slate-600">SLOT ${i + 1}</div>
-                        <div class="w-12 h-12 rounded-full border border-slate-800 flex items-center justify-center text-lg my-2 text-slate-700">
+                        <div class="text-[10px] uppercase font-bold tracking-widest text-slate-600">SLOT ${i + 1}</div>
+                        <div class="w-10 h-10 rounded-full border border-slate-800 flex items-center justify-center text-sm my-1.5 text-slate-700">
                             +
                         </div>
-                        <div class="text-xs font-semibold text-slate-600">DISPONIBLE</div>
+                        <div class="text-[10px] font-semibold text-slate-600">LIBRE</div>
                     `;
                 }
                 grid.appendChild(card);
@@ -526,6 +677,7 @@
         }
 
         async function toggleReady() {
+            haptics.light();
             try {
                 await fetch(`/api/rooms/${ROOM_CODE}/ready`, {
                     method: 'POST',
@@ -537,6 +689,7 @@
         }
 
         async function startGame() {
+            haptics.heavy();
             const btn = document.getElementById('btn-start-game');
             btn.disabled = true;
             try {
@@ -566,8 +719,10 @@
                 count--;
                 if (count > 0) {
                     num.innerText = count;
+                    haptics.light();
                 } else if (count === 0) {
                     num.innerText = '¡FUEGO!';
+                    haptics.heavy();
                 } else {
                     clearInterval(interval);
                     overlay.classList.add('hidden');
@@ -587,7 +742,6 @@
                     timerEl.innerText = `${mins}:${secs}`;
                 } else {
                     clearInterval(timerInterval);
-                    // Match expired
                 }
             }, 1000);
         }
@@ -599,7 +753,7 @@
 
             Object.values(gameState.players).forEach(p => {
                 const chip = document.createElement('div');
-                chip.className = `flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs border ${p.alive ? 'bg-slate-900 border-slate-700 text-white' : 'bg-red-950/60 border-red-500/40 text-slate-500 opacity-60'}`;
+                chip.className = `flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] border whitespace-nowrap ${p.alive ? 'bg-slate-900 border-slate-700 text-white' : 'bg-red-950/60 border-red-500/40 text-slate-500 opacity-60'}`;
                 chip.innerHTML = `
                     <span>${p.alive ? '🤖' : '💀'}</span>
                     <span class="font-bold">${escapeHtml(p.nickname)}</span>
@@ -615,7 +769,7 @@
             window.addEventListener('keydown', (e) => {
                 if (!gameState || currentRoom.status !== 'playing') return;
                 const now = performance.now();
-                if (now - lastMoveTime < 100) return; // limit input rate
+                if (now - lastMoveTime < 100) return;
 
                 let dir = null;
                 if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') dir = 'up';
@@ -632,6 +786,70 @@
                     sendBomb();
                 }
             });
+        }
+
+        // Ergonomic Mobile Touch Controls with Haptics and Hold-to-walk
+        function initTouchControls() {
+            const directions = ['up', 'down', 'left', 'right'];
+
+            directions.forEach(dir => {
+                const btn = document.getElementById(`dpad-${dir}`);
+                if (!btn) return;
+
+                let holdInterval = null;
+
+                const startPress = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    btn.classList.add('is-active');
+                    haptics.light();
+                    sendMove(dir);
+
+                    if (holdInterval) clearInterval(holdInterval);
+                    holdInterval = setInterval(() => {
+                        sendMove(dir);
+                    }, 140);
+                };
+
+                const endPress = (e) => {
+                    e.preventDefault();
+                    btn.classList.remove('is-active');
+                    if (holdInterval) {
+                        clearInterval(holdInterval);
+                        holdInterval = null;
+                    }
+                };
+
+                btn.addEventListener('touchstart', startPress, { passive: false });
+                btn.addEventListener('touchend', endPress, { passive: false });
+                btn.addEventListener('touchcancel', endPress, { passive: false });
+                btn.addEventListener('mousedown', startPress);
+                btn.addEventListener('mouseup', endPress);
+                btn.addEventListener('mouseleave', endPress);
+            });
+
+            // Bomb Button Press
+            const bombBtn = document.getElementById('dpad-bomb');
+            if (bombBtn) {
+                const triggerBomb = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    bombBtn.classList.add('is-active');
+                    haptics.heavy();
+                    sendBomb();
+                };
+                const releaseBomb = (e) => {
+                    e.preventDefault();
+                    bombBtn.classList.remove('is-active');
+                };
+
+                bombBtn.addEventListener('touchstart', triggerBomb, { passive: false });
+                bombBtn.addEventListener('touchend', releaseBomb, { passive: false });
+                bombBtn.addEventListener('touchcancel', releaseBomb, { passive: false });
+                bombBtn.addEventListener('mousedown', triggerBomb);
+                bombBtn.addEventListener('mouseup', releaseBomb);
+                bombBtn.addEventListener('mouseleave', releaseBomb);
+            }
         }
 
         async function sendMove(direction) {
@@ -670,6 +888,7 @@
         }
 
         async function requestRematch() {
+            haptics.heavy();
             try {
                 await fetch(`/api/rooms/${ROOM_CODE}/rematch`, {
                     method: 'POST',
@@ -691,15 +910,15 @@
             if (data.winner_id && gameState && gameState.players[data.winner_id]) {
                 const winner = gameState.players[data.winner_id];
                 title.innerText = '¡VICTORIA!';
-                title.className = 'arcade-font text-5xl font-black text-yellow-400 mb-2';
+                title.className = 'arcade-font text-3xl sm:text-5xl font-black text-yellow-400 mb-1';
                 subtitle.innerText = `${winner.nickname} es el Campeón de la Arena`;
             } else {
                 title.innerText = '¡EMPATE!';
-                title.className = 'arcade-font text-5xl font-black text-slate-300 mb-2';
+                title.className = 'arcade-font text-3xl sm:text-5xl font-black text-slate-300 mb-1';
                 subtitle.innerText = 'Ningún jugador sobrevivió a la detonación';
             }
 
-            stats.innerHTML = '<div class="font-bold text-xs uppercase text-slate-400 mb-3 border-b border-slate-700 pb-1 flex justify-between"><span>Jugador</span><span>Bajas / Bombas</span></div>';
+            stats.innerHTML = '<div class="font-bold text-[10px] uppercase text-slate-400 mb-2 border-b border-slate-700 pb-1 flex justify-between"><span>Jugador</span><span>Bajas / Bombas</span></div>';
             if (data.players) {
                 Object.values(data.players).forEach(p => {
                     const row = document.createElement('div');
