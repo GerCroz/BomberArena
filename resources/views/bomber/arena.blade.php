@@ -434,6 +434,16 @@
         let roomStateInFlight = false;
         const processedEventIds = new Set();
         const detonatedBombIds = new Set();
+        let inputSequence = gameState?.input_sequences?.[CURRENT_PLAYER_ID] || 0;
+        const diagnostics = { rtt: 0, corrections: 0, staleStates: 0, events: 0, lastReceived: 0 };
+        const diagnosticsAllowed = {{ app()->environment('local') || auth()->user()?->is_admin ? 'true' : 'false' }};
+        let diagnosticsEnabled = false;
+        window.addEventListener('keydown', event => {
+            if (diagnosticsAllowed && event.code === 'F3') {
+                event.preventDefault();
+                diagnosticsEnabled = !diagnosticsEnabled;
+            }
+        });
 
         function syncServerTime(serverUnixTimestamp) {
             if (typeof serverUnixTimestamp === 'number' && serverUnixTimestamp > 0) {
@@ -558,10 +568,13 @@
                 .listen('.GameEvent', (e) => {
                     handleIncomingEvent(e);
                 });
+            window.Echo.connector?.pusher?.connection?.bind('connected', () => fetchRoomState());
         }
 
         function handleIncomingEvent(e) {
             const { type, data } = e;
+            diagnostics.events++;
+            diagnostics.lastReceived = performance.now();
 
             if (type === 'game_started') {
                 if (!data.state || (gameState && data.state.started_at < gameState.started_at)) return;
@@ -573,6 +586,7 @@
             if (data && data.event_id) {
                 if (processedEventIds.has(data.event_id)) return;
                 processedEventIds.add(data.event_id);
+                if (processedEventIds.size > 512) processedEventIds.delete(processedEventIds.values().next().value);
             }
 
             if (data && data.server_time) {
@@ -584,6 +598,9 @@
             }
 
             switch (type) {
+                case 'state_updated':
+                    applyStateSnapshot(data.state);
+                    break;
                 case 'player_joined':
                     fetchRoomState();
                     break;
@@ -602,6 +619,7 @@
                     gameState = data.state;
                     lastProcessedVersion = gameState.version || 1;
                     lastMoveTime = 0;
+                    inputSequence = gameState.input_sequences?.[CURRENT_PLAYER_ID] || 0;
                     lastServerTickTime = 0;
                     pendingActionQueue = [];
                     if (gameRenderer) gameRenderer.activeExplosions = [];
@@ -621,7 +639,7 @@
                 case 'player_moved':
                     if (gameState && gameState.players[data.player_id]) {
                         const player = gameState.players[data.player_id];
-                        if (data.version && data.version < (player._lastMoveVersion || 0)) break;
+                        if (data.version && data.version < Math.max(player._lastMoveVersion || 0, gameState.version || 0)) { diagnostics.staleStates++; break; }
                         player._lastMoveVersion = data.version || 0;
                         if (data.stats) {
                             player.speed = data.stats.speed;
@@ -629,8 +647,7 @@
                             player.bomb_range = data.stats.bomb_range;
                             player.kills = data.stats.kills;
                         }
-                        // Only update other players! NEVER overwrite our own local position with WebSocket echo
-                        if (data.player_id !== CURRENT_PLAYER_ID) {
+                        {
                             gameState.players[data.player_id].x = data.x;
                             gameState.players[data.player_id].y = data.y;
                             gameState.players[data.player_id].direction = data.direction;
@@ -641,12 +658,13 @@
                             if (data.player_id === CURRENT_PLAYER_ID) {
                                 haptics.heavy();
                             }
-                            delete gameState.powerups[`${data.x}_${data.y}`];
+                            (data.collected_keys || [`${data.x}_${data.y}`]).forEach(key => delete gameState.powerups[key]);
                         }
                     }
                     break;
                 case 'bomb_placed':
                     if (gameState && data.bomb) {
+                        if (data.version && data.version < gameState.version) { diagnostics.staleStates++; break; }
                         if (detonatedBombIds.has(data.bomb.id) || gameState.is_game_over) break;
                         if (!gameState.bombs) gameState.bombs = {};
                         // If placed by local player, remove optimistic placeholder
@@ -700,7 +718,7 @@
                         // Spawn power-ups
                         if (data.spawned_powerups) {
                             data.spawned_powerups.forEach(pu => {
-                                gameState.powerups[`${pu.x}_${pu.y}`] = pu.type;
+                                if (!data.version || data.version >= gameState.version) gameState.powerups[`${pu.x}_${pu.y}`] = pu.type;
                             });
                         }
 
@@ -766,12 +784,16 @@
                 if (state.is_game_over && gameState.round_id === state.round_id) applyStateSnapshot(state);
                 return;
             }
-            if (state.version < lastProcessedVersion) return;
+            if (state.version < lastProcessedVersion || (state.version === gameState.version && (state.tick ?? 0) < (gameState.tick ?? 0))) { diagnostics.staleStates++; return; }
             if (state.is_game_over && !gameState.is_game_over) {
                 handleIncomingEvent({ type: 'game_over', data: { round_id: state.round_id, winner_id: state.winner_id, finish_reason: state.finish_reason, players: state.players } });
             }
-            if (isFlushingActions || pendingActionQueue.length > 0) return;
+            const previous = gameState.players?.[CURRENT_PLAYER_ID];
+            const confirmed = state.players?.[CURRENT_PLAYER_ID];
+            if (previous && confirmed && Math.abs(previous.x - confirmed.x) + Math.abs(previous.y - confirmed.y) > 1) diagnostics.corrections++;
             gameState = state;
+            inputSequence = Math.max(inputSequence, state.input_sequences?.[CURRENT_PLAYER_ID] || 0);
+            diagnostics.lastReceived = performance.now();
             lastProcessedVersion = state.version;
             updateHud();
         }
@@ -967,6 +989,57 @@
 
         // Keyboard Controls
         let lastMoveTime = 0;
+        const heldDirections = new Map();
+        let walkingDirection = null;
+        let walkRefreshInterval = null;
+        let visualPrediction = null;
+
+        function previewStep(direction) {
+            const me = gameState?.players?.[CURRENT_PLAYER_ID];
+            const delta = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[direction];
+            if (!me?.alive || !delta) return;
+            const x = me.x + delta[0], y = me.y + delta[1];
+            if (canMoveTo(x, y)) visualPrediction = { x, y, sequence: inputSequence + 1, expiresAt: performance.now() + 1000, acknowledgedTick: null };
+        }
+
+        function reconcileVisualPrediction() {
+            if (!visualPrediction) return;
+            const me = gameState?.players?.[CURRENT_PLAYER_ID];
+            if (!me?.alive || gameState.is_game_over || performance.now() > visualPrediction.expiresAt || (me.x === visualPrediction.x && me.y === visualPrediction.y)) {
+                visualPrediction = null;
+                return;
+            }
+            if ((gameState.input_sequences?.[CURRENT_PLAYER_ID] || 0) >= visualPrediction.sequence) {
+                visualPrediction.acknowledgedTick ??= gameState.tick || 0;
+                if ((gameState.tick || 0) > visualPrediction.acknowledgedTick) visualPrediction = null;
+            }
+            if (visualPrediction && !canMoveTo(visualPrediction.x, visualPrediction.y)) visualPrediction = null;
+        }
+
+        function beginWalk(inputDirection) {
+            if (!gameState?.players?.[CURRENT_PLAYER_ID]?.alive || currentRoom.status !== 'playing' || isCountingDown) return;
+            const direction = gameRenderer ? gameRenderer.screenToLogicalDir(inputDirection) : inputDirection;
+            if (walkingDirection === direction) return;
+            walkingDirection = direction;
+            previewStep(direction);
+            enqueueAction({ type: 'move', direction });
+            if (walkRefreshInterval) clearInterval(walkRefreshInterval);
+            const repeatAfter = performance.now() + 300;
+            walkRefreshInterval = setInterval(() => {
+                if (walkingDirection && performance.now() >= repeatAfter && !isFlushingActions && pendingActionQueue.length === 0) {
+                    previewStep(walkingDirection);
+                    enqueueAction({ type: 'move', direction: walkingDirection, _repeat: true });
+                }
+            }, movementIntervalMs());
+        }
+
+        function endWalk() {
+            if (walkRefreshInterval) clearInterval(walkRefreshInterval);
+            walkRefreshInterval = null;
+            pendingActionQueue = pendingActionQueue.filter(action => !action._repeat);
+            walkingDirection = null;
+        }
+
         function initKeyboard() {
             window.addEventListener('keydown', (e) => {
                 if (!gameState || currentRoom.status !== 'playing') return;
@@ -980,14 +1053,21 @@
 
                 if (dir) {
                     e.preventDefault();
-                    if (now - lastMoveTime < 90) return;
-                    lastMoveTime = now;
-                    predictAndMove(dir);
+                    if (heldDirections.has(e.key)) return;
+                    heldDirections.set(e.key, dir);
+                    beginWalk(dir);
                 } else if (e.code === 'Space') {
                     e.preventDefault();
                     sendBomb();
                 }
             });
+            window.addEventListener('keyup', e => {
+                if (!heldDirections.delete(e.key)) return;
+                const direction = [...heldDirections.values()].at(-1);
+                if (direction) beginWalk(direction);
+                else endWalk();
+            });
+            window.addEventListener('blur', () => { heldDirections.clear(); endWalk(); });
         }
 
         // Check if a tile can be stepped on locally
@@ -1013,12 +1093,19 @@
             return true;
         }
 
-        // Unified batched action pipeline for 0ms responsive gameplay
+        function movementIntervalMs() {
+            const speed = Math.max(1, Math.min(3, gameState?.players?.[CURRENT_PLAYER_ID]?.speed || 1));
+            return 125 - speed * 25;
+        }
+
+        // Bounded command pipeline; snapshots contain confirmed positions.
         let pendingActionQueue = [];
         let isFlushingActions = false;
         let actionRequestController = null;
 
         function enqueueAction(action) {
+            if (action._repeat && (isFlushingActions || pendingActionQueue.length > 0)) return;
+            if (pendingActionQueue.length >= 4) return;
             pendingActionQueue.push(action);
             flushActions();
         }
@@ -1027,9 +1114,15 @@
             if (isFlushingActions || pendingActionQueue.length === 0) return;
             isFlushingActions = true;
 
-            const batch = pendingActionQueue.splice(0, 40);
+            const batch = [];
+            while (pendingActionQueue.length > 0 && batch.length < 40) {
+                if (pendingActionQueue[0].type === 'move' && batch.some(action => action.type === 'move')) break;
+                batch.push(pendingActionQueue.shift());
+            }
             const generation = roundGeneration;
             const roundId = gameState.round_id;
+            const sequence = ++inputSequence;
+            const requestStarted = performance.now();
             actionRequestController = new AbortController();
 
             try {
@@ -1037,16 +1130,17 @@
                     method: 'POST',
                     signal: AbortSignal.any([actionRequestController.signal, AbortSignal.timeout(5000)]),
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
-                    body: JSON.stringify({ actions: batch, round_id: roundId })
+                    body: JSON.stringify({ actions: batch.map(({ _repeat, ...action }) => action), round_id: roundId, sequence })
                 });
                 const data = await res.json();
                 if (generation !== roundGeneration) return;
+                diagnostics.rtt = performance.now() - requestStarted;
                 batch.forEach(action => {
                     if (action.temp_id && gameState && gameState.bombs) delete gameState.bombs[action.temp_id];
                 });
                 if (data.server_time) syncServerTime(data.server_time);
                 (data.events || []).forEach(handleIncomingEvent);
-                if (data.stale_round || data.state?.is_game_over) applyStateSnapshot(data.state);
+                applyStateSnapshot(data.state);
                 if (data && data.success) {
                     if (data.bombs && data.bombs.length > 0 && gameState && gameState.bombs) {
                         data.bombs.forEach(b => {
@@ -1054,20 +1148,20 @@
                                 delete gameState.bombs[b.temp_id];
                             }
                             b.local_planted_at = performance.now();
-                            if (!gameState.is_game_over && !detonatedBombIds.has(b.id)) {
+                            if ((!data.version || data.version >= lastProcessedVersion) && !gameState.is_game_over && !detonatedBombIds.has(b.id)) {
                                 gameState.bombs[b.id] = b;
                             }
                         });
                     }
-                    // Authoritative position reconciliation: only once pending input queue is fully drained
-                    if (data.pos && pendingActionQueue.length === 0 && gameState && gameState.players) {
+                    // Compatibility with responses from servers without full snapshots.
+                    if (!data.state && (!data.version || data.version >= lastProcessedVersion) && data.pos && pendingActionQueue.length === 0 && gameState && gameState.players) {
                         const me = gameState.players[CURRENT_PLAYER_ID];
                         if (me && me.alive) {
                             me.x = data.pos.x;
                             me.y = data.pos.y;
                         }
                     }
-                } else if (data && !data.success && data.pos && pendingActionQueue.length === 0 && gameState && gameState.players) {
+                } else if (data && !data.state && (!data.version || data.version >= lastProcessedVersion) && !data.success && data.pos && pendingActionQueue.length === 0 && gameState && gameState.players) {
                     const me = gameState.players[CURRENT_PLAYER_ID];
                     if (me && me.alive) {
                         me.x = data.pos.x;
@@ -1079,6 +1173,7 @@
                     batch.forEach(action => { if (action.temp_id) delete gameState.bombs[action.temp_id]; });
                 }
                 console.warn('Network action dispatch:', err);
+                if (generation === roundGeneration) fetchRoomState();
             } finally {
                 if (generation === roundGeneration) {
                     isFlushingActions = false;
@@ -1089,7 +1184,7 @@
             }
         }
 
-        // Client-side prediction for instantaneous 0ms response
+        // Submit input without changing confirmed coordinates.
         function predictAndMove(inputDir) {
             if (!gameState || !gameState.players || currentRoom.status !== 'playing' || isCountingDown) return;
             const me = gameState.players[CURRENT_PLAYER_ID];
@@ -1112,19 +1207,7 @@
             me._movedAt = performance.now();
 
             if (canMoveTo(nextX, nextY)) {
-                // Instantly update on local screen (0ms latency!)
-                me.x = nextX;
-                me.y = nextY;
-
-                // Collect power-up immediately
-                const puKey = `${nextX}_${nextY}`;
-                if (gameState.powerups && gameState.powerups[puKey]) {
-                    delete gameState.powerups[puKey];
-                    if (sfx) sfx.playPowerup();
-                    haptics.heavy();
-                }
-
-                // Send authoritative command to server in batched queue
+                // Confirmed coordinates remain unchanged until the server resolves the tick.
                 enqueueAction({ type: 'move', direction: direction });
             }
         }
@@ -1137,28 +1220,18 @@
                 const btn = document.getElementById(`dpad-${dir}`);
                 if (!btn) return;
 
-                let holdInterval = null;
-
                 const startPress = (e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     btn.classList.add('is-active');
                     haptics.light();
-                    predictAndMove(dir);
-
-                    if (holdInterval) clearInterval(holdInterval);
-                    holdInterval = setInterval(() => {
-                        predictAndMove(dir);
-                    }, 120);
+                    beginWalk(dir);
                 };
 
                 const endPress = (e) => {
                     e.preventDefault();
                     btn.classList.remove('is-active');
-                    if (holdInterval) {
-                        clearInterval(holdInterval);
-                        holdInterval = null;
-                    }
+                    endWalk();
                 };
 
                 btn.addEventListener('touchstart', startPress, { passive: false });
@@ -1223,22 +1296,8 @@
             me.isPlacingBomb = true;
             setTimeout(() => { me.isPlacingBomb = false; }, 180);
 
-            // Instant 0ms optimistic bomb placement!
+            // Correlate the command with its confirmation.
             const tempId = 'opt_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-            const tempBomb = {
-                id: tempId,
-                x: me.x,
-                y: me.y,
-                owner_id: CURRENT_PLAYER_ID,
-                range: me.bomb_range || 2,
-                planted_at: getCurrentServerTime(),
-                explodes_at: getCurrentServerTime() + Math.max(0.5, (gameState.rules?.bomb_fuse_ms ?? 2000) / 1000),
-                local_planted_at: performance.now(),
-                _optimistic: true
-            };
-
-            if (!gameState.bombs) gameState.bombs = {};
-            gameState.bombs[tempId] = tempBomb;
 
             if (sfx) sfx.playBombDrop();
             haptics.heavy();
@@ -1379,6 +1438,12 @@
         let tickRequestController = null;
 
         function stopRound() {
+            visualPrediction = null;
+            if (gameRenderer) gameRenderer.localPreview = null;
+            if (walkRefreshInterval) clearInterval(walkRefreshInterval);
+            walkRefreshInterval = null;
+            walkingDirection = null;
+            heldDirections.clear();
             if (animFrameId) cancelAnimationFrame(animFrameId);
             animFrameId = null;
             if (timerInterval) clearInterval(timerInterval);
@@ -1400,18 +1465,21 @@
             serverTickInterval = setInterval(() => {
                 if (!gameState || gameState.is_game_over || currentRoom.status !== 'playing') return;
                 const now = performance.now();
-                const tickInterval = isHost && Object.values(gameState.bombs || {}).some(bomb => !bomb._optimistic) ? 250 : 1000;
+                const tickInterval = 1000;
                 if (now - lastServerTickTime >= tickInterval) {
                     lastServerTickTime = now;
                     sendServerTick();
                 }
-            }, 250);
+            }, 100);
 
             function loop() {
                 if (!gameState || gameState.is_game_over || currentRoom.status !== 'playing') return;
                 const curServerTime = getCurrentServerTime();
 
                 if (gameRenderer) {
+                    reconcileVisualPrediction();
+                    gameRenderer.localPreview = visualPrediction ? { id: CURRENT_PLAYER_ID, x: visualPrediction.x, y: visualPrediction.y } : null;
+                    gameRenderer.diagnostics = diagnosticsEnabled ? { ...diagnostics, room: ROOM_CODE } : null;
                     gameRenderer.render(gameState, CURRENT_PLAYER_ID, performance.now() / 1000, curServerTime);
                 }
                 animFrameId = requestAnimationFrame(loop);
@@ -1423,6 +1491,7 @@
             if (serverTickInFlight || !gameState || gameState.is_game_over) return;
             serverTickInFlight = true;
             const generation = roundGeneration;
+            const requestStarted = performance.now();
             tickRequestController = new AbortController();
             try {
                 const res = await fetch(`/api/rooms/${ROOM_CODE}/tick`, {
@@ -1433,6 +1502,7 @@
                 });
                 const data = await res.json();
                 if (generation !== roundGeneration) return;
+                diagnostics.rtt = performance.now() - requestStarted;
                 if (data.server_time) syncServerTime(data.server_time);
                 (data.events || []).forEach(handleIncomingEvent);
                 applyStateSnapshot(data.state);

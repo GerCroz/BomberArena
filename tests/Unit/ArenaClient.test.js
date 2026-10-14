@@ -50,6 +50,126 @@ test('adjacent players retain independent animated positions and the local playe
     ]);
 });
 
+test('a keyboard tap sends exactly one step and release never sends a continuous walking intent', async () => {
+    const client = createClient();
+    client.run('initKeyboard();');
+    const press = { key: 'ArrowRight', preventDefault() {} };
+    client.listeners.get('keydown')(press);
+    client.listeners.get('keydown')(press);
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(client.calls.length, 1);
+    assert.equal(JSON.parse(client.calls[0][1].body).actions[0].type, 'move');
+    assert.equal(client.run('gameState.players[CURRENT_PLAYER_ID].x'), 1);
+    client.listeners.get('keyup')({ key: 'ArrowRight' });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(client.calls.length, 1);
+    assert.equal(client.run('walkRefreshInterval'), null);
+});
+
+test('quick escape tap during pending bomb response sends a step instead of losing it to stop', async () => {
+    const responses = [];
+    const client = createClient(() => new Promise(resolve => responses.push(resolve)));
+    client.run('initKeyboard(); sendBomb();');
+    client.listeners.get('keydown')({ key: 'ArrowRight', preventDefault() {} });
+    client.listeners.get('keyup')({ key: 'ArrowRight' });
+
+    assert.equal(client.calls.length, 1);
+    assert.equal(client.run('gameState.players[CURRENT_PLAYER_ID].x'), 1);
+    assert.equal(client.run('visualPrediction.x'), 2);
+    assert.equal(client.run('pendingActionQueue.some(action => action.type === "move" && action.direction === "right")'), true);
+    responses[0]({ ok: true, json: async () => ({ success: true }) });
+    await new Promise(resolve => setImmediate(resolve));
+
+    const next = JSON.parse(client.calls[1][1].body).actions;
+    assert.ok(next.some(action => action.type === 'move' && action.direction === 'right'));
+    assert.equal(next.filter(action => action.type === 'move').length, 1);
+    assert.equal(next.some(action => action.type === 'walk' || action.type === 'stop'), false);
+    responses[1]({ ok: true, json: async () => ({ success: true }) });
+    await new Promise(resolve => setImmediate(resolve));
+});
+
+test('holding during delayed HTTP never queues repeat steps after release', async () => {
+    const responses = [];
+    const client = createClient(() => new Promise(resolve => responses.push(resolve)));
+    client.run(`beginWalk('right');`);
+    for (const callback of client.intervals.values()) callback();
+    client.run('endWalk();');
+
+    assert.equal(client.run('pendingActionQueue.some(action => action.type === "move")'), false);
+    responses[0]({ ok: true, json: async () => ({ success: true }) });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(client.calls.length, 1);
+    assert.equal(client.run('pendingActionQueue.length'), 0);
+});
+
+test('visual anticipation changes drawing while logical position and bomb placement remain confirmed', () => {
+    const renderer = createRenderer();
+    const state = { seed: 42, grid: [[0]], players: { a: { id: 'a', alive: true, x: 1, y: 1 } } };
+    renderer.frame(0, state);
+    renderer.run('renderer.localPreview = { id: "a", x: 2, y: 1 };');
+
+    renderer.frame(25, state);
+
+    assert.equal(renderer.draws[0].x, 100);
+    assert.equal(state.players.a.x, 1);
+    assert.equal(state.players.a.y, 1);
+});
+
+test('short press with a fast response does not repeat and intentional hold stops generating steps on release', async () => {
+    const client = createClient();
+    client.run(`beginWalk('right');`);
+    await new Promise(resolve => setImmediate(resolve));
+    client.frame(650);
+    for (const callback of client.intervals.values()) callback();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(client.calls.length, 1);
+
+    client.frame(900);
+    for (const callback of client.intervals.values()) callback();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(client.calls.length, 2);
+    client.run('endWalk();');
+    client.frame(1400);
+    for (const callback of client.intervals.values()) callback();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(client.calls.length, 2);
+    assert.equal(client.run('pendingActionQueue.length'), 0);
+});
+
+test('two separate taps during a delayed bomb remain exactly two single-step requests', async () => {
+    const responses = [];
+    const client = createClient(() => new Promise(resolve => responses.push(resolve)));
+    client.run('sendBomb(); beginWalk("right"); endWalk(); beginWalk("down"); endWalk();');
+    responses[0]({ ok: true, json: async () => ({ success: true }) });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(JSON.parse(client.calls[1][1].body).actions, [{ type: 'move', direction: 'right' }]);
+    responses[1]({ ok: true, json: async () => ({ success: true }) });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(JSON.parse(client.calls[2][1].body).actions, [{ type: 'move', direction: 'down' }]);
+    responses[2]({ ok: true, json: async () => ({ success: true }) });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(client.calls.length, 3);
+});
+
+function createRenderer() {
+    let now = 0;
+    let boards = 0;
+    const draws = [];
+    const ctx = { clearRect() {}, drawImage() {}, strokeRect() {}, fillRect() {}, fillText() {} };
+    const context = vm.createContext({
+        performance: { now: () => now }, document: { createElement: () => ({ getContext: () => ctx }) },
+        drawTile() { boards++; }, drawCharacter: (ctx, x, y, size, player) => draws.push({ id: player.id, x, y }),
+    });
+    vm.runInContext(rendererSource, context);
+    context.canvas = { getContext: () => ctx };
+    vm.runInContext('const renderer = new GameRenderer(canvas);', context);
+    return { run: code => vm.runInContext(code, context), context, draws,
+        frame(time, state) { now = time; context.state = state; draws.length = 0; vm.runInContext("renderer.render(state, 'a');", context); },
+        boards: () => boards,
+    };
+}
+
 const template = readFileSync(new URL('../../resources/views/bomber/arena.blade.php', import.meta.url), 'utf8');
 const script = template.slice(template.indexOf('const ROOM_CODE ='), template.lastIndexOf('</script>'))
     .replace(/\{\{[^}]*\}\}/g, '180')
@@ -257,13 +377,13 @@ test('a snapshot can discover a new rematch without its WebSocket event', () => 
     assert.equal(client.run('lastProcessedVersion'), 1);
 });
 
-test('snapshots preserve predicted movement while an action is pending', () => {
+test('snapshots reconcile confirmed movement while an action is pending', () => {
     const client = createClient();
     client.run(`isFlushingActions = true; gameState.players[CURRENT_PLAYER_ID].x = 3;`);
 
     client.run(`applyStateSnapshot({ ...gameState, version: 91, players: { '180': { x: 1, y: 1, alive: true } } });`);
 
-    assert.equal(client.run('gameState.players[CURRENT_PLAYER_ID].x'), 3);
+    assert.equal(client.run('gameState.players[CURRENT_PLAYER_ID].x'), 1);
 });
 
 test('a stalled old action is aborted so new rematch commands can be sent', async () => {
@@ -363,3 +483,103 @@ test('a new round cancels the pending result of the previous explosion', () => {
     assert.equal(client.nodes.get('gameover-modal').classList.contains('hidden'), true);
     assert.equal(client.run('currentRoom.status'), 'playing');
 });
+
+for (const [id, scenario] of [
+    ['V01', 'landscape'], ['V02', 'portrait'], ['V03', 'directions'], ['V04', 'adjacent interpolation'],
+    ['V05', 'diagonal correction'], ['V06', 'large correction'], ['V07', 'spatial conflict'], ['V08', 'dead marker'],
+    ['V09', 'removed entity'], ['V10', 'immutable logic'], ['V11', 'board cache'],
+    ['V12', 'old snapshot'], ['V13', 'old movement'], ['V14', 'confirmed local position'],
+]) {
+    test(`${id} ${scenario}`, async () => {
+        if (id === 'V12' || id === 'V13' || id === 'V14') {
+            const client = createClient();
+            if (id === 'V12') {
+                client.run(`applyStateSnapshot({ ...gameState, version: 89, players: {} });`);
+                assert.equal(client.run('gameState.version'), 90);
+                assert.ok(client.run('gameState.players.other'));
+            } else if (id === 'V13') {
+                client.run(`handleIncomingEvent({ type: 'player_moved', data: { round_id: 'old_round', version: 89, player_id: 'other', x: 1, y: 1 } });`);
+                assert.equal(client.run('gameState.players.other.x'), 11);
+            } else {
+                client.run("predictAndMove('right');");
+                assert.equal(client.run('gameState.players[CURRENT_PLAYER_ID].x'), 1);
+                assert.equal(client.calls.length, 1);
+                assert.equal(JSON.parse(client.calls[0][1].body).sequence, 1);
+                await new Promise(resolve => setImmediate(resolve));
+            }
+            return;
+        }
+        const renderer = createRenderer();
+        const state = { seed: 42, grid: [[0, 2, 0]], players: { a: { id: 'a', alive: true, x: 1, y: 1 } } };
+        renderer.frame(0, state);
+        if (id === 'V01') {
+            assert.equal(renderer.draws[0].x, 75); assert.equal(renderer.draws[0].y, 75);
+        } else if (id === 'V02') {
+            renderer.run('renderer.setPortrait(true);'); renderer.frame(25, state);
+            assert.equal(renderer.draws[0].x, 475); assert.equal(renderer.draws[0].y, 75);
+        } else if (id === 'V03') {
+            renderer.run('renderer.setPortrait(true);');
+            for (const direction of ['up', 'right', 'down', 'left']) {
+                assert.equal(renderer.run(`renderer.screenToLogicalDir(renderer.logicalToScreenDir('${direction}'))`), direction);
+            }
+        } else if (id === 'V04') {
+            state.players.a.x = 2; renderer.frame(25, state);
+            assert.equal(renderer.draws[0].x, 100); assert.equal(renderer.draws[0].y, 75);
+        } else if (id === 'V05' || id === 'V06') {
+            state.players.a.x = id === 'V05' ? 2 : 5;
+            state.players.a.y = id === 'V05' ? 2 : 1;
+            renderer.frame(25, state);
+            assert.equal(renderer.draws[0].x, state.players.a.x * 50 + 25);
+            assert.equal(renderer.draws[0].y, state.players.a.y * 50 + 25);
+        } else if (id === 'V07') {
+            state.players.b = { id: 'b', alive: true, x: 2, y: 1 }; renderer.frame(1, state);
+            state.players.b.x = 3; state.players.a.x = 2; renderer.frame(25, state);
+            const a = renderer.draws.find(p => p.id === 'a'), b = renderer.draws.find(p => p.id === 'b');
+            assert.ok(Math.abs(a.x - b.x) >= 35);
+        } else if (id === 'V08') {
+            state.players.b = { id: 'b', alive: false, x: 2, y: 1 };
+            state.players.a.x = 2; renderer.frame(25, state);
+            assert.equal(renderer.draws.length, 2);
+            assert.equal(renderer.draws.find(p => p.id === 'a').x, 100);
+        } else if (id === 'V09') {
+            delete state.players.a; renderer.frame(25, state);
+            assert.equal(renderer.run('renderer.displayPos.size'), 0);
+        } else if (id === 'V10') {
+            state.players.a.x = 2;
+            const before = JSON.stringify(state); renderer.frame(25, state);
+            assert.equal(JSON.stringify(state), before);
+        } else if (id === 'V11') {
+            const before = renderer.boards();
+            state.grid = [[0, 0, 2]]; renderer.frame(25, state);
+            assert.ok(renderer.boards() > before);
+        }
+    });
+}
+
+for (const latency of [30, 150, 300]) {
+    test(`asymmetric virtual network ${latency}ms with jitter, duplicates and reconnection converges`, () => {
+        const clients = [createClient(), createClient(), createClient(), createClient()];
+        const timeline = [];
+        for (let clientIndex = 0; clientIndex < clients.length; clientIndex++) {
+            for (let version = 91; version <= 100; version++) {
+                const x = 1 + (version % 2);
+                const state = clients[clientIndex].run(`({ ...gameState, version: ${version}, tick: ${version}, players: { '180': { id: '180', x: ${x}, y: 1, alive: true }, other: { id: 'other', x: 11, y: 9, alive: true } } })`);
+                const time = (version - 91) * 50 + latency * (clientIndex + 1) / 4 + ((version * 17 + clientIndex * 31) % 90);
+                if (clientIndex !== 3 || version % 3 === 0) timeline.push({ time, clientIndex, state });
+                if (version % 4 === 0) timeline.push({ time: time + 120, clientIndex, state });
+            }
+        }
+        timeline.sort((a, b) => a.time - b.time);
+        for (const message of timeline) {
+            const client = clients[message.clientIndex];
+            client.context.incomingState = message.state;
+            client.run('applyStateSnapshot(incomingState);');
+        }
+        for (const client of clients) {
+            client.run(`applyStateSnapshot({ ...gameState, version: 101, tick: 101, players: { '180': { id: '180', x: 2, y: 1, alive: true }, other: { id: 'other', x: 11, y: 9, alive: true } } });`);
+            assert.equal(client.run('gameState.version'), 101);
+            assert.equal(client.run('gameState.players[CURRENT_PLAYER_ID].x'), 2);
+            assert.ok(client.run('diagnostics.staleStates') > 0);
+        }
+    });
+}

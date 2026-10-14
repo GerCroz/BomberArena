@@ -39,6 +39,8 @@ export class GameRenderer {
         this.portrait = false;
         this.displayPos = new Map();
         this.lastFrame = performance.now();
+        this.metrics = { frames: 0, fps: 0, visualCorrections: 0, maxVisualError: 0, maxInterpolationAgeMs: 0 };
+        this.frameWindowStarted = this.lastFrame;
 
         // Offscreen cache for the static board
         this.boardLayer = document.createElement('canvas');
@@ -122,6 +124,12 @@ export class GameRenderer {
         const now = performance.now();
         const dt = Math.min(0.1, (now - this.lastFrame) / 1000);
         this.lastFrame = now;
+        this.metrics.frames++;
+        if (now - this.frameWindowStarted >= 1000) {
+            this.metrics.fps = this.metrics.frames * 1000 / (now - this.frameWindowStarted);
+            this.metrics.frames = 0;
+            this.frameWindowStarted = now;
+        }
 
         if (!gameState || !gameState.grid) {
             ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -129,13 +137,8 @@ export class GameRenderer {
         }
 
         // --- LAYER 1: STATIC BOARD (cached) ---
-        let blocks = 0;
         const grid = gameState.grid;
-        for (let y = 0; y < grid.length; y++) {
-            const row = grid[y];
-            for (let x = 0; x < row.length; x++) if (row[x] === 2) blocks++;
-        }
-        const signature = `${gameState.seed}|${this.portrait}|${blocks}`;
+        const signature = `${gameState.seed}|${this.portrait}|${JSON.stringify(grid)}`;
         if (signature !== this.boardSignature) {
             this.rebuildBoard(grid);
             this.boardSignature = signature;
@@ -176,21 +179,53 @@ export class GameRenderer {
 
             const lerp = this.reducedMotion ? 1 : Math.min(1, dt * 20);
 
+            for (const id of this.displayPos.keys()) {
+                if (!gameState.players[id]) this.displayPos.delete(id);
+            }
+            const candidates = new Map();
+            for (const player of list) {
+                const preview = player.alive && this.localPreview?.id === player.id ? this.localPreview : null;
+                const s = this.toScreen(preview?.x ?? player.x, preview?.y ?? player.y);
+                const target = { x: s.col * ts + half, y: s.row * ts + half };
+                const old = this.displayPos.get(player.id);
+                const distance = old ? Math.abs(old.x - target.x) + Math.abs(old.y - target.y) : 0;
+                const diagonal = old && Math.abs(old.x - target.x) > 1 && Math.abs(old.y - target.y) > 1;
+                const next = !old || !player.alive || diagonal || distance > ts + 1
+                    ? target : { x: old.x + (target.x - old.x) * lerp, y: old.y + (target.y - old.y) * lerp };
+                next.targetX = target.x;
+                next.targetY = target.y;
+                next.changedAt = !old || old.targetX !== target.x || old.targetY !== target.y ? now : old.changedAt;
+                if (old && player.alive && (diagonal || distance > ts + 1)) this.metrics.visualCorrections++;
+                candidates.set(player.id, next);
+            }
+            const living = list.filter(player => player.alive);
+            let conflict = false;
+            for (let i = 0; i < living.length; i++) {
+                for (let j = i + 1; j < living.length; j++) {
+                    const a = candidates.get(living[i].id), b = candidates.get(living[j].id);
+                    if (Math.abs(a.x - b.x) < ts * 0.7 && Math.abs(a.y - b.y) < ts * 0.7) conflict = true;
+                }
+            }
+            if (conflict) {
+                this.metrics.visualCorrections++;
+                for (const player of living) {
+                    const s = this.toScreen(player.x, player.y);
+                    candidates.set(player.id, { x: s.col * ts + half, y: s.row * ts + half });
+                }
+            }
+            this.displayPos = candidates;
+
             for (const player of list) {
                 const s = this.toScreen(player.x, player.y);
                 const tx = s.col * ts + half;
                 const ty = s.row * ts + half;
 
-                let dp = this.displayPos.get(player.id);
-                if (!dp || Math.abs(dp.x - tx) > ts * 2.5 || Math.abs(dp.y - ty) > ts * 2.5) {
-                    dp = { x: tx, y: ty };
-                    this.displayPos.set(player.id, dp);
-                } else {
-                    dp.x += (tx - dp.x) * lerp;
-                    dp.y += (ty - dp.y) * lerp;
-                }
+                const dp = this.displayPos.get(player.id);
+                const error = Math.abs(tx - dp.x) + Math.abs(ty - dp.y);
+                this.metrics.maxVisualError = Math.max(this.metrics.maxVisualError, error / ts);
+                if (error > 1 && dp.changedAt !== undefined) this.metrics.maxInterpolationAgeMs = Math.max(this.metrics.maxInterpolationAgeMs, now - dp.changedAt);
 
-                const travelling = Math.abs(tx - dp.x) + Math.abs(ty - dp.y) > 1;
+                const travelling = Math.abs((dp.targetX ?? tx) - dp.x) + Math.abs((dp.targetY ?? ty) - dp.y) > 1;
                 const recentlyMoved = player._movedAt && now - player._movedAt < 180;
 
                 drawCharacter(ctx, dp.x, dp.y, ts, {
@@ -198,7 +233,27 @@ export class GameRenderer {
                     direction: this.logicalToScreenDir(player.direction || 'down'),
                     isMoving: travelling || recentlyMoved,
                 }, motionTime, player.id === currentUserId);
+                if (this.diagnostics && player.alive) {
+                    ctx.strokeStyle = '#00ffff';
+                    ctx.strokeRect(tx - half, ty - half, ts, ts);
+                    ctx.strokeStyle = '#ff00ff';
+                    ctx.strokeRect(dp.x - ts * 0.35, dp.y - ts * 0.35, ts * 0.7, ts * 0.7);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '10px monospace';
+                    ctx.fillText(`${player.slot ?? '?'} L:${player.x},${player.y} V:${((dp.x-half)/ts).toFixed(2)},${((dp.y-half)/ts).toFixed(2)}`, dp.x - half, dp.y - half);
+                }
             }
+        }
+        if (this.diagnostics) {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, this.canvas.width, 70);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '11px monospace';
+            ctx.fillText(`Sala ${this.diagnostics.room} tick ${gameState.tick ?? 0} v${gameState.version} seq ${gameState.input_sequences?.[currentUserId] ?? 0}`, 4, 13);
+            ctx.fillText(`RTT HTTP ${this.diagnostics.rtt.toFixed(0)}ms estados descartados ${this.diagnostics.staleStates} cambios ${this.diagnostics.corrections}`, 4, 26);
+            ctx.fillText(`Ultimo ${Math.round(now-this.diagnostics.lastReceived)}ms eventos ${this.diagnostics.events} vivos ${Object.values(gameState.players).filter(p=>p.alive).length}`, 4, 39);
+            ctx.fillText(`FPS ${this.metrics.fps.toFixed(0)} correcciones visuales ${this.metrics.visualCorrections} error max ${this.metrics.maxVisualError.toFixed(2)} casillas`, 4, 52);
+            ctx.fillText(Object.values(gameState.players).map(p => `${p.slot ?? '?'}:${p.alive ? 'vivo' : 'eliminado'}`).join(' '), 4, 65);
         }
     }
 }

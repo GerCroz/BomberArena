@@ -2,11 +2,16 @@
 
 namespace App\Services;
 
+use Random\Engine\Mt19937;
+use Random\Randomizer;
+
 class BomberGameEngine
 {
     public const WIDTH = 13;
 
     public const HEIGHT = 11;
+
+    public const TICK_SECONDS = 0.05;
 
     // Tile Types
     public const TILE_EMPTY = 0;
@@ -33,12 +38,16 @@ class BomberGameEngine
     public const SAFE_ZONES = [
         // Top-left
         ['x' => 1, 'y' => 1], ['x' => 1, 'y' => 2], ['x' => 2, 'y' => 1],
+        ['x' => 3, 'y' => 1], ['x' => 3, 'y' => 2], ['x' => 1, 'y' => 3], ['x' => 2, 'y' => 3],
         // Bottom-right
         ['x' => 11, 'y' => 9], ['x' => 11, 'y' => 8], ['x' => 10, 'y' => 9],
+        ['x' => 9, 'y' => 9], ['x' => 9, 'y' => 8], ['x' => 11, 'y' => 7], ['x' => 10, 'y' => 7],
         // Top-right
         ['x' => 11, 'y' => 1], ['x' => 10, 'y' => 1], ['x' => 11, 'y' => 2],
+        ['x' => 9, 'y' => 1], ['x' => 9, 'y' => 2], ['x' => 11, 'y' => 3], ['x' => 10, 'y' => 3],
         // Bottom-left
         ['x' => 1, 'y' => 9], ['x' => 2, 'y' => 9], ['x' => 1, 'y' => 8],
+        ['x' => 3, 'y' => 9], ['x' => 3, 'y' => 8], ['x' => 1, 'y' => 7], ['x' => 2, 'y' => 7],
     ];
 
     /**
@@ -46,8 +55,10 @@ class BomberGameEngine
      */
     public function createInitialState(array $playerRecords, ?int $seed = null, array $rules = []): array
     {
+        $rules['player_collisions'] = true;
+        $rules['dead_players_block_movement'] = false;
         $seed = $seed ?? mt_rand(10000, 99999);
-        mt_srand($seed);
+        $random = new Randomizer(new Mt19937($seed));
 
         $blockDensity = (int) ($rules['block_density_percent'] ?? 65);
         $grid = [];
@@ -78,7 +89,7 @@ class BomberGameEngine
                 }
 
                 // Destructible block distribution according to configured density
-                if (mt_rand(1, 100) <= $blockDensity) {
+                if ($random->getInt(1, 100) <= $blockDensity) {
                     $row[] = self::TILE_BLOCK;
                 } else {
                     $row[] = self::TILE_EMPTY;
@@ -120,11 +131,22 @@ class BomberGameEngine
 
         $duration = (int) ($rules['round_duration_seconds'] ?? 180);
         $startedAt = (float) now()->format('U.u');
+        foreach ($players as &$player) {
+            $player['last_seen_at'] = $startedAt;
+        }
+        unset($player);
 
         return [
             'round_id' => bin2hex(random_bytes(16)),
             'seed' => $seed,
             'version' => 1,
+            'tick' => 0,
+            'pending_moves' => [],
+            'movement_intents' => [],
+            'bomb_sequence' => 0,
+            'input_sequences' => [],
+            'movement_ready_at' => [],
+            'diagnostics' => ['rejected_collisions' => 0, 'rejected_moves' => 0],
             'grid' => $grid,
             'players' => $players,
             'initial_player_count' => count($players),
@@ -145,6 +167,138 @@ class BomberGameEngine
         ];
     }
 
+    /**
+     * Resolve a closed input tick against its starting occupancy. Contested
+     * destinations reject every contender; occupied origins cannot be entered.
+     *
+     * @param  array<string, string>  $directions
+     * @return array<string, array>
+     */
+    public function resolveMovementTick(array &$state, array $directions, float $time): array
+    {
+        ksort($directions);
+        $origins = [];
+        foreach ($state['players'] as $id => $player) {
+            if ($player['alive']) {
+                $origins[$player['x'].'_'.$player['y']] = $id;
+            }
+        }
+        $targets = [];
+        $destinations = [];
+        foreach ($directions as $id => $direction) {
+            $player = $state['players'][$id] ?? null;
+            $delta = ['up' => [0, -1], 'down' => [0, 1], 'left' => [-1, 0], 'right' => [1, 0]][$direction] ?? null;
+            if (! $player || ! $player['alive'] || ! $delta) {
+                continue;
+            }
+            $key = ($player['x'] + $delta[0]).'_'.($player['y'] + $delta[1]);
+            $destinations[$id] = $key;
+            $targets[$key][] = $id;
+        }
+        $results = [];
+        foreach ($directions as $id => $direction) {
+            $key = $destinations[$id] ?? null;
+            if ($key !== null && (isset($origins[$key]) || count($targets[$key]) > 1)) {
+                $results[$id] = ['success' => false, 'error' => 'Conflicto de ocupacion'];
+            } elseif ($time + 0.000001 < ($state['movement_ready_at'][$id] ?? 0)) {
+                $results[$id] = ['success' => false, 'error' => 'Movimiento demasiado rapido'];
+            } else {
+                $results[$id] = $this->handleMove($state, $id, $direction);
+                if ($results[$id]['success']) {
+                    $speed = max(1, min(3, (int) $state['players'][$id]['speed']));
+                    $previousDeadline = $state['movement_ready_at'][$id] ?? $time;
+                    $baseTime = $previousDeadline >= $time - self::TICK_SECONDS - 0.000001 ? $previousDeadline : $time;
+                    $state['movement_ready_at'][$id] = $baseTime + (125 - $speed * 25) / 1000;
+                }
+            }
+            if (! $results[$id]['success']) {
+                $state['diagnostics']['rejected_moves'] = ($state['diagnostics']['rejected_moves'] ?? 0) + 1;
+                if (($key !== null && (isset($origins[$key]) || count($targets[$key]) > 1)) || str_starts_with($results[$id]['error'], 'Casilla')) {
+                    $state['diagnostics']['rejected_collisions'] = ($state['diagnostics']['rejected_collisions'] ?? 0) + 1;
+                }
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * Advance only closed ticks. Inputs expire after an interruption instead
+     * of replaying a backlog of movement at reconnect time.
+     *
+     * @return array<int, array{0: string, 1: array}>
+     */
+    public function advanceMovement(array &$state, float $time): array
+    {
+        $events = [];
+        $closedTick = max(0, (int) floor(($time - $state['started_at']) / self::TICK_SECONDS));
+        for ($tick = max(($state['tick'] ?? 0) + 1, $closedTick - 9); $tick <= $closedTick; $tick++) {
+            $tickTime = $state['started_at'] + $tick * self::TICK_SECONDS;
+            foreach ($state['movement_intents'] ?? [] as $id => $intent) {
+                if ($tickTime >= $intent['started_at'] && $tickTime <= $intent['expires_at'] && $tickTime + 0.000001 >= ($state['movement_ready_at'][$id] ?? 0)) {
+                    $state['pending_moves'][$tick][$id] ??= $intent['direction'];
+                }
+            }
+        }
+        $pending = $state['pending_moves'] ?? [];
+        ksort($pending, SORT_NUMERIC);
+        foreach ($pending as $tick => $commands) {
+            if ($tick > $closedTick) {
+                continue;
+            }
+            unset($state['pending_moves'][$tick]);
+            $tickTime = $state['started_at'] + $tick * self::TICK_SECONDS;
+            if ($time - $tickTime > 0.5 || ! empty($state['is_game_over'])) {
+                continue;
+            }
+            foreach ($commands as $id => $direction) {
+                if (isset($state['movement_intents'][$id]) && $tickTime + 0.000001 < ($state['movement_ready_at'][$id] ?? 0)) {
+                    unset($commands[$id]);
+                }
+            }
+            foreach ($this->checkAndDetonateExpiredBombs($state, $tickTime) as $explosion) {
+                $events[] = ['bomb_exploded', $explosion];
+            }
+            $this->evaluateMatchOutcome($state, $tickTime);
+            foreach ($this->resolveMovementTick($state, $commands, $tickTime) as $id => $result) {
+                if ($result['success']) {
+                    $player = $state['players'][$id];
+                    $events[] = ['player_moved', [
+                        'player_id' => $id, 'x' => $player['x'], 'y' => $player['y'],
+                        'direction' => $player['direction'], 'stats' => $player,
+                        'collected_powerup' => $result['collected_powerup'],
+                        'collected_keys' => $result['collected_powerup'] ? [$player['x'].'_'.$player['y']] : [],
+                        'tick' => (int) $tick,
+                    ]];
+                }
+            }
+        }
+        $state['tick'] = max($state['tick'] ?? 0, $closedTick);
+        foreach ($this->checkAndDetonateExpiredBombs($state, $time) as $explosion) {
+            $events[] = ['bomb_exploded', $explosion];
+        }
+        $wasOver = ! empty($state['is_game_over']);
+        $this->evaluateMatchOutcome($state, $time);
+        if (empty($state['is_game_over']) && ($state['rules']['eliminate_on_disconnect'] ?? false)) {
+            $grace = ($state['rules']['reconnection_enabled'] ?? true) ? max(0, (int) ($state['rules']['reconnect_grace_seconds'] ?? 15)) : 0;
+            foreach ($state['players'] as $id => &$player) {
+                if ($player['alive'] && isset($player['last_seen_at']) && $time - $player['last_seen_at'] > 1 + $grace) {
+                    $player['alive'] = false;
+                    $state['stats']['total_eliminations']++;
+                    $state['version']++;
+                    $events[] = ['player_disconnected', ['player_id' => $id, 'tick' => $closedTick]];
+                }
+            }
+            unset($player);
+            $this->evaluateMatchOutcome($state, $time);
+        }
+        if (! $wasOver && ! empty($state['is_game_over'])) {
+            $state['version']++;
+        }
+
+        return $events;
+    }
+
     protected function isSafeZone(int $x, int $y): bool
     {
         foreach (self::SAFE_ZONES as $zone) {
@@ -161,6 +315,9 @@ class BomberGameEngine
      */
     public function handleMove(array &$state, string $playerId, string $direction): array
     {
+        if (! empty($state['is_game_over'])) {
+            return ['success' => false, 'error' => 'Partida finalizada'];
+        }
         if (! isset($state['players'][$playerId])) {
             return ['success' => false, 'error' => 'Jugador no encontrado'];
         }
@@ -205,19 +362,9 @@ class BomberGameEngine
             }
         }
 
-        // Check living player collisions if enabled in rules
-        $rules = $state['rules'] ?? [];
-        $checkCollisions = $rules['player_collisions'] ?? true;
-        $deadPlayersBlock = $rules['dead_players_block_movement'] ?? false;
-
-        if ($checkCollisions) {
-            foreach ($state['players'] as $pid => $otherPlayer) {
-                if ($pid !== $playerId) {
-                    $otherIsObstacle = ! empty($otherPlayer['alive']) || $deadPlayersBlock;
-                    if ($otherIsObstacle && $otherPlayer['x'] === $newX && $otherPlayer['y'] === $newY) {
-                        return ['success' => false, 'error' => 'Casilla ocupada por otro jugador', 'pos' => ['x' => $player['x'], 'y' => $player['y']]];
-                    }
-                }
+        foreach ($state['players'] as $pid => $otherPlayer) {
+            if ($pid !== $playerId && ! empty($otherPlayer['alive']) && $otherPlayer['x'] === $newX && $otherPlayer['y'] === $newY) {
+                return ['success' => false, 'error' => 'Casilla ocupada por otro jugador', 'pos' => ['x' => $player['x'], 'y' => $player['y']]];
             }
         }
 
@@ -257,6 +404,9 @@ class BomberGameEngine
      */
     public function handlePlaceBomb(array &$state, string $playerId): array
     {
+        if (! empty($state['is_game_over'])) {
+            return ['success' => false, 'error' => 'Partida finalizada'];
+        }
         if (! isset($state['players'][$playerId])) {
             return ['success' => false, 'error' => 'Jugador no encontrado'];
         }
@@ -291,7 +441,8 @@ class BomberGameEngine
         $fuseMs = (int) ($state['rules']['bomb_fuse_ms'] ?? 2000);
         $fuseSeconds = max(0.5, $fuseMs / 1000.0);
 
-        $bombId = 'bomb_'.uniqid().'_'.mt_rand(100, 999);
+        $state['bomb_sequence'] = ($state['bomb_sequence'] ?? 0) + 1;
+        $bombId = 'bomb_'.$state['bomb_sequence'];
         $plantedAt = (float) now()->format('U.u');
         $explodesAt = $plantedAt + $fuseSeconds;
 
@@ -307,6 +458,7 @@ class BomberGameEngine
         ];
 
         $state['bombs'][$bombId] = $bomb;
+        $player['active_bombs'] = $activeBombs + 1;
         $player['bombs_placed']++;
         $state['version']++;
 
@@ -332,6 +484,7 @@ class BomberGameEngine
         $bombsToDetonate = [$rootBomb];
         $detonatedBombIds = [$rootBomb['id']];
         $allExplosionTiles = [];
+        $damageOwners = [];
         $destroyedBlocks = [];
         $spawnedPowerUps = [];
         $eliminatedPlayers = [];
@@ -352,6 +505,7 @@ class BomberGameEngine
 
             // Center tile
             $allExplosionTiles["{$cx}_{$cy}"] = ['x' => $cx, 'y' => $cy];
+            $damageOwners["{$cx}_{$cy}"][] = $currentBomb['owner_id'];
 
             // 4 directions: [dx, dy]
             $directions = [
@@ -381,11 +535,13 @@ class BomberGameEngine
                         $state['grid'][$ty][$tx] = self::TILE_EMPTY;
                         $destroyedBlocks[] = ['x' => $tx, 'y' => $ty];
                         $allExplosionTiles["{$tx}_{$ty}"] = ['x' => $tx, 'y' => $ty];
+                        $damageOwners["{$tx}_{$ty}"][] = $currentBomb['owner_id'];
 
                         // Chance to spawn power-up
-                        if ($powerupsEnabled && mt_rand(1, 100) <= $dropChance) {
+                        $random = new Randomizer(new Mt19937((int) hexdec(substr(hash('sha256', ($state['seed'] ?? 0).'|'.$currentBomb['id'].'|'.$tx.'|'.$ty), 0, 8))));
+                        if ($powerupsEnabled && $random->getInt(1, 100) <= $dropChance) {
                             $types = [self::POWERUP_SPEED, self::POWERUP_BOMB, self::POWERUP_FIRE];
-                            $chosen = $types[array_rand($types)];
+                            $chosen = $types[$random->getInt(0, 2)];
                             $state['powerups']["{$tx}_{$ty}"] = $chosen;
                             $spawnedPowerUps[] = ['x' => $tx, 'y' => $ty, 'type' => $chosen];
                         }
@@ -394,6 +550,7 @@ class BomberGameEngine
 
                     // Empty tile: fire continues
                     $allExplosionTiles["{$tx}_{$ty}"] = ['x' => $tx, 'y' => $ty];
+                    $damageOwners["{$tx}_{$ty}"][] = $currentBomb['owner_id'];
 
                     // Check chain reactions with other active bombs
                     if ($allowChain) {
@@ -420,28 +577,32 @@ class BomberGameEngine
 
             $posKey = "{$player['x']}_{$player['y']}";
             if (isset($allExplosionTiles[$posKey])) {
-                $isOwner = ($rootBomb['owner_id'] === $pid);
-
-                // Apply self-damage and friendly-fire rule filters
-                if ($isOwner && ! $selfDamage) {
+                $owners = array_values(array_unique($damageOwners[$posKey]));
+                sort($owners);
+                $eligibleOwners = array_values(array_filter($owners, fn (string $owner): bool => $owner === $pid ? $selfDamage : $friendlyFire));
+                if ($eligibleOwners === []) {
                     continue;
                 }
-                if (! $isOwner && ! $friendlyFire) {
-                    continue;
-                }
+                $killerId = $eligibleOwners[0];
+                $isOwner = ($killerId === $pid);
 
                 $player['alive'] = false;
                 $eliminatedPlayers[] = [
                     'player_id' => $pid,
                     'nickname' => $player['nickname'],
-                    'killed_by' => $rootBomb['owner_id'],
+                    'killed_by' => $killerId,
                 ];
 
                 // Credit kill to owner if not suicide
-                if (! $isOwner && isset($state['players'][$rootBomb['owner_id']])) {
-                    $state['players'][$rootBomb['owner_id']]['kills']++;
+                if (! $isOwner && isset($state['players'][$killerId])) {
+                    $state['players'][$killerId]['kills']++;
                 }
             }
+        }
+        unset($player);
+
+        foreach ($state['players'] as $pid => &$player) {
+            $player['active_bombs'] = count(array_filter($state['bombs'], fn (array $bomb): bool => $bomb['owner_id'] === $pid));
         }
         unset($player);
 
@@ -486,6 +647,7 @@ class BomberGameEngine
             return $results;
         }
 
+        uasort($state['bombs'], fn (array $a, array $b): int => [$a['explodes_at'], $a['y'], $a['x'], $a['owner_id']] <=> [$b['explodes_at'], $b['y'], $b['x'], $b['owner_id']]);
         $bombIds = array_keys($state['bombs']);
         foreach ($bombIds as $id) {
             if (isset($state['bombs'][$id]) && ($state['bombs'][$id]['state'] ?? 'active') === 'active' && $now >= $state['bombs'][$id]['explodes_at']) {

@@ -173,14 +173,15 @@ class BomberGameController extends Controller
     {
         $validated = $request->validate([
             'round_id' => ['nullable', 'string', 'max:64'],
+            'sequence' => ['nullable', 'integer', 'min:1', 'max:2147483647'],
             'actions' => ['required', 'array', 'min:1', 'max:40'],
-            'actions.*.type' => ['required', 'string', 'in:move,bomb'],
+            'actions.*.type' => ['required', 'string', 'in:move,walk,stop,bomb'],
             'actions.*.direction' => ['nullable', 'string', 'in:up,down,left,right'],
             'actions.*.temp_id' => ['nullable', 'string'],
         ]);
 
         $playerId = $this->identity->getOrCreatePlayerId($request);
-        $result = $this->roomService->handleActions($code, $playerId, $validated['actions'], $validated['round_id'] ?? null);
+        $result = $this->roomService->handleActions($code, $playerId, $validated['actions'], $validated['round_id'] ?? null, $validated['sequence'] ?? null);
 
         return response()->json($result, $result['success'] ? 200 : 422);
     }
@@ -191,7 +192,7 @@ class BomberGameController extends Controller
     public function tick(Request $request, string $code): JsonResponse
     {
         $validated = $request->validate(['round_id' => ['nullable', 'string', 'max:64']]);
-        $result = $this->roomService->tickRoom($code, $validated['round_id'] ?? null);
+        $result = $this->roomService->tickRoom($code, $validated['round_id'] ?? null, $this->identity->getOrCreatePlayerId($request));
 
         return response()->json($result, $result['success'] ? 200 : 422);
     }

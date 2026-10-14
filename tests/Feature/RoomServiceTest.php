@@ -2,11 +2,10 @@
 
 namespace Tests\Feature;
 
-use Tests\TestCase;
-use App\Models\Room;
-use App\Models\RoomPlayer;
 use App\Services\RoomService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Tests\TestCase;
 
 class RoomServiceTest extends TestCase
 {
@@ -115,18 +114,19 @@ class RoomServiceTest extends TestCase
             'explodes_at' => $now - 1,
             'state' => 'active',
         ];
-        \Illuminate\Support\Facades\Cache::put("arena_state_{$room->code}", $state, 600);
+        Cache::put("arena_state_{$room->code}", $state, 600);
 
         $tickRes = $this->roomService->tickRoom($room->code);
 
         $this->assertTrue($tickRes['success']);
         $this->assertArrayHasKey('server_time', $tickRes);
-        $freshState = \Illuminate\Support\Facades\Cache::get("arena_state_{$room->code}");
+        $freshState = Cache::get("arena_state_{$room->code}");
         $this->assertArrayNotHasKey('b_expired', $freshState['bombs']);
     }
 
-    public function test_two_players_attempting_to_occupy_same_tile_rejects_second_player(): void
+    public function test_two_players_attempting_to_occupy_same_tile_are_both_rejected(): void
     {
+        $this->freezeTime();
         $room = $this->roomService->createRoom('p0', 'Host');
         $this->roomService->joinRoom($room->code, 'p1', 'Challenger');
         $startRes = $this->roomService->startGame($room->code, 'p0');
@@ -137,7 +137,7 @@ class RoomServiceTest extends TestCase
         $state['players']['p0']['y'] = 1;
         $state['players']['p1']['x'] = 3;
         $state['players']['p1']['y'] = 1;
-        \Illuminate\Support\Facades\Cache::put("arena_state_{$room->code}", $state, 600);
+        Cache::put("arena_state_{$room->code}", $state, 600);
 
         // p0 moves right to (2, 1) -> succeeds
         $res0 = $this->roomService->handleMove($room->code, 'p0', 'right');
@@ -145,8 +145,12 @@ class RoomServiceTest extends TestCase
 
         // p1 moves left towards (2, 1) -> now occupied by p0, must be rejected
         $res1 = $this->roomService->handleMove($room->code, 'p1', 'left');
-        $this->assertFalse($res1['success']);
-        $this->assertStringContainsString('ocupada', $res1['error']);
+        $this->assertTrue($res1['success']);
+        $this->travel(100)->milliseconds();
+        $result = $this->roomService->tickRoom($room->code);
+        $this->assertSame(1, $result['state']['players']['p0']['x']);
+        $this->assertSame(3, $result['state']['players']['p1']['x']);
+        $this->assertSame(2, $result['state']['diagnostics']['rejected_collisions']);
     }
 
     public function test_detonate_bomb_is_idempotent_if_already_exploded(): void
@@ -172,7 +176,7 @@ class RoomServiceTest extends TestCase
         $state['players']['p0']['y'] = 1;
         $state['players']['p1']['x'] = 5;
         $state['players']['p1']['y'] = 5;
-        \Illuminate\Support\Facades\Cache::put("arena_state_{$room->code}", $state, 600);
+        Cache::put("arena_state_{$room->code}", $state, 600);
 
         $res0 = $this->roomService->placeBomb($room->code, 'p0');
         $this->assertTrue($res0['success']);
@@ -188,7 +192,7 @@ class RoomServiceTest extends TestCase
 
         $this->assertNotEquals($res0['bomb']['id'], $res1['bomb']['id']);
 
-        $freshState = \Illuminate\Support\Facades\Cache::get("arena_state_{$room->code}");
+        $freshState = Cache::get("arena_state_{$room->code}");
         $this->assertCount(2, $freshState['bombs']);
         $this->assertArrayHasKey($res0['bomb']['id'], $freshState['bombs']);
         $this->assertArrayHasKey($res1['bomb']['id'], $freshState['bombs']);

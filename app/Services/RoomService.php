@@ -90,6 +90,11 @@ class RoomService
      */
     public function joinRoom(string $code, string $playerId, string $nickname): array
     {
+        return $this->withRoomLock($code, fn (): array => $this->joinLockedRoom($code, $playerId, $nickname));
+    }
+
+    protected function joinLockedRoom(string $code, string $playerId, string $nickname): array
+    {
         $room = Room::where('code', strtoupper($code))->first();
 
         if (! $room) {
@@ -341,7 +346,14 @@ class RoomService
                 return ['success' => false, 'error' => 'Partida finalizada', 'state' => $state, 'server_time' => microtime(true)];
             }
 
-            $result = $mutation($state, $events, $telemetry);
+            $previousVersion = $state['version'];
+
+            array_push($events, ...$this->engine->advanceMovement($state, (float) now()->format('U.u')));
+            if (empty($state['is_game_over'])) {
+                $result = $mutation($state, $events, $telemetry);
+            } else {
+                $result = ['success' => true, 'state' => $state];
+            }
 
             // Resolve any bomb whose authoritative server fuse has elapsed
             foreach ($this->engine->checkAndDetonateExpiredBombs($state) as $detRes) {
@@ -358,6 +370,9 @@ class RoomService
                 $result['finish_reason'] = $state['finish_reason'] ?? null;
             }
 
+            if ($state['version'] !== $previousVersion) {
+                $events[] = ['state_updated', ['state' => $state]];
+            }
             Cache::put($this->stateKey($cleanCode), $state, 1800);
             // Authoritatively persist match completion and transition state to FINISHED (exactly once)
             if (! empty($state['is_game_over'])) {
@@ -399,11 +414,10 @@ class RoomService
 
         $result['round_id'] = $state['round_id'] ?? null;
         $result['version'] = $state['version'] ?? 1;
+        $result['tick'] = $state['tick'] ?? 0;
+        $result['state'] = $state;
         $result['server_time'] = microtime(true);
         $result['events'] = [];
-        if (array_key_exists('state', $result)) {
-            $result['state'] = $state;
-        }
         foreach ($events as [$type, $data]) {
             if (is_array($data)) {
                 $data['version'] = $state['version'] ?? 1;
@@ -425,34 +439,56 @@ class RoomService
     /**
      * Process an ordered batch of player actions (moves and bombs) atomically.
      */
-    public function handleActions(string $code, string $playerId, array $actions, ?string $roundId = null): array
+    public function handleActions(string $code, string $playerId, array $actions, ?string $roundId = null, ?int $sequence = null): array
     {
-        return $this->mutateState($code, function (array &$state, array &$events, array &$telemetry) use ($playerId, $actions) {
+        return $this->mutateState($code, function (array &$state, array &$events, array &$telemetry) use ($playerId, $actions, $sequence) {
             if (! isset($state['players'][$playerId])) {
                 return ['success' => false, 'error' => 'Jugador no encontrado'];
             }
+            if ($state['players'][$playerId]['alive']) {
+                $state['players'][$playerId]['last_seen_at'] = (float) now()->format('U.u');
+            }
 
-            $moved = false;
-            $lastDirection = null;
-            $collected = [];
+            if ($sequence !== null) {
+                if ($sequence <= ($state['input_sequences'][$playerId] ?? 0)) {
+                    return ['success' => true, 'duplicate' => true];
+                }
+                $state['input_sequences'][$playerId] = $sequence;
+            }
+
             $bombs = [];
             $rejected = 0;
             $lastError = null;
+            $queuedMovement = false;
 
             foreach (array_slice($actions, 0, 40) as $action) {
                 $type = $action['type'] ?? null;
 
-                if ($type === 'move') {
-                    $res = $this->engine->handleMove($state, $playerId, (string) ($action['direction'] ?? ''));
-                    if ($res['success']) {
-                        $moved = true;
-                        $lastDirection = $action['direction'];
-                        if ($res['collected_powerup']) {
-                            $collected[] = "{$res['pos']['x']}_{$res['pos']['y']}";
+                if ($type === 'stop') {
+                    unset($state['movement_intents'][$playerId]);
+                } elseif ($type === 'walk') {
+                    $direction = (string) ($action['direction'] ?? '');
+                    if ($state['players'][$playerId]['alive'] && in_array($direction, ['up', 'down', 'left', 'right'], true)) {
+                        $time = (float) now()->format('U.u');
+                        if (! isset($state['movement_intents'][$playerId]) || $state['movement_intents'][$playerId]['direction'] !== $direction) {
+                            $tick = max($state['tick'] ?? 0, (int) floor(($time - $state['started_at']) / BomberGameEngine::TICK_SECONDS)) + 1;
+                            $state['pending_moves'][$tick][$playerId] = $direction;
                         }
+                        $state['movement_intents'][$playerId] = ['direction' => $direction, 'started_at' => $time, 'expires_at' => $time + 1.0];
                     } else {
                         $rejected++;
-                        $lastError = $res['error'] ?? 'Movimiento bloqueado';
+                        $lastError = 'Direccion de movimiento invalida';
+                    }
+                } elseif ($type === 'move') {
+                    $direction = (string) ($action['direction'] ?? '');
+                    $tick = max($state['tick'] ?? 0, (int) floor(((float) now()->format('U.u') - $state['started_at']) / BomberGameEngine::TICK_SECONDS)) + 1;
+                    if ($queuedMovement || ($sequence === null && isset($state['pending_moves'][$tick][$playerId])) || ! $state['players'][$playerId]['alive'] || ! in_array($direction, ['up', 'down', 'left', 'right'], true)) {
+                        $rejected++;
+                        $lastError = 'Comando de movimiento rechazado';
+                    } else {
+                        $state['pending_moves'][$tick][$playerId] = $direction;
+                        $queuedMovement = true;
+                        $state['version']++;
                     }
                 } elseif ($type === 'bomb') {
                     $res = $this->engine->handlePlaceBomb($state, $playerId);
@@ -470,18 +506,6 @@ class RoomService
             }
 
             $player = $state['players'][$playerId];
-
-            if ($moved) {
-                $events[] = ['player_moved', [
-                    'player_id' => $playerId,
-                    'x' => $player['x'],
-                    'y' => $player['y'],
-                    'direction' => $lastDirection,
-                    'collected_powerup' => ! empty($collected),
-                    'collected_keys' => $collected,
-                    'stats' => $player,
-                ]];
-            }
 
             foreach ($bombs as $bomb) {
                 $events[] = ['bomb_placed', ['bomb' => $bomb]];
@@ -550,9 +574,13 @@ class RoomService
     /**
      * Authoritative central room simulation tick.
      */
-    public function tickRoom(string $code, ?string $roundId = null): array
+    public function tickRoom(string $code, ?string $roundId = null, ?string $playerId = null): array
     {
-        return $this->mutateState($code, function (array &$state, array &$events, array &$telemetry) {
+        return $this->mutateState($code, function (array &$state, array &$events, array &$telemetry) use ($playerId) {
+            if ($playerId !== null && ! empty($state['players'][$playerId]['alive'])) {
+                $state['players'][$playerId]['last_seen_at'] = (float) now()->format('U.u');
+            }
+
             return [
                 'success' => true,
                 'version' => $state['version'] ?? 1,
