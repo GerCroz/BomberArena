@@ -14,11 +14,12 @@ class GameRulesService
      */
     public function getActiveRules(): array
     {
-        return Cache::remember(self::CACHE_KEY, 3600, function () {
+        $rules = Cache::remember(self::CACHE_KEY, 3600, function () {
             $record = GameRule::where('is_active', true)->orderByDesc('version')->first();
             if ($record) {
                 return array_merge(GameRule::defaultSettings(), $record->settings, [
                     '__version' => $record->version,
+                    'movement_defaults_version' => $record->settings['movement_defaults_version'] ?? 1,
                 ]);
             }
 
@@ -34,6 +35,12 @@ class GameRulesService
 
             return array_merge($defaults, ['__version' => $newRecord->version]);
         });
+        if (($rules['movement_defaults_version'] ?? 1) < 2) {
+            $rules['player_collisions'] = false;
+            $rules['timeout_result'] = 'draw';
+        }
+
+        return array_merge(GameRule::defaultSettings(), $rules, ['movement_defaults_version' => 2]);
     }
 
     /**
@@ -92,7 +99,7 @@ class GameRulesService
         $merged['countdown_seconds'] = max(0, min(10, (int) ($merged['countdown_seconds'] ?? 3)));
         $merged['end_on_last_survivor'] = (bool) ($merged['end_on_last_survivor'] ?? true);
         $merged['draw_on_simultaneous_elimination'] = (bool) ($merged['draw_on_simultaneous_elimination'] ?? true);
-        $merged['timeout_result'] = in_array($merged['timeout_result'] ?? '', ['most_bombs', 'most_kills'], true) ? $merged['timeout_result'] : 'most_bombs';
+        $merged['timeout_result'] = in_array($merged['timeout_result'] ?? '', ['draw', 'most_bombs', 'most_kills'], true) ? $merged['timeout_result'] : 'draw';
         $merged['allow_rematch'] = (bool) ($merged['allow_rematch'] ?? true);
 
         $merged['bomb_fuse_ms'] = max(500, min(10000, (int) ($merged['bomb_fuse_ms'] ?? 2000)));
@@ -104,11 +111,11 @@ class GameRulesService
         $merged['friendly_fire'] = (bool) ($merged['friendly_fire'] ?? true);
 
         $merged['player_initial_speed'] = max(1, min(3, (int) ($merged['player_initial_speed'] ?? 1)));
-        $merged['player_collisions'] = (bool) ($merged['player_collisions'] ?? true);
+        $merged['player_collisions'] = (bool) ($merged['player_collisions'] ?? false);
         $merged['reconnection_enabled'] = (bool) ($merged['reconnection_enabled'] ?? true);
         $merged['reconnect_grace_seconds'] = max(0, min(120, (int) ($merged['reconnect_grace_seconds'] ?? 15)));
         $merged['eliminate_on_disconnect'] = (bool) ($merged['eliminate_on_disconnect'] ?? true);
-        $merged['dead_players_block_movement'] = (bool) ($merged['dead_players_block_movement'] ?? false);
+        $merged['dead_players_block_movement'] = false;
 
         $merged['board_cols'] = 13; // Fixed standard board width
         $merged['board_rows'] = 11; // Fixed standard board height
@@ -116,6 +123,14 @@ class GameRulesService
         $merged['powerups_enabled'] = (bool) ($merged['powerups_enabled'] ?? true);
         $merged['powerup_drop_chance_percent'] = max(0, min(100, (int) ($merged['powerup_drop_chance_percent'] ?? 25)));
         $merged['random_map_generation'] = (bool) ($merged['random_map_generation'] ?? true);
+        $merged['movement_defaults_version'] = 2;
+        $merged['movement_speed'] = max(2.0, min(6.0, (float) ($merged['movement_speed'] ?? 4)));
+        $merged['simulation_hz'] = in_array((int) ($merged['simulation_hz'] ?? 20), [20, 25, 30], true) ? (int) $merged['simulation_hz'] : 20;
+        $merged['publish_hz'] = max(5, min($merged['simulation_hz'], (int) ($merged['publish_hz'] ?? 10)));
+        $merged['corner_assist'] = max(0, min(0.25, (float) ($merged['corner_assist'] ?? 0.25)));
+        $merged['local_prediction'] = (bool) ($merged['local_prediction'] ?? true);
+        $merged['remote_interpolation'] = (bool) ($merged['remote_interpolation'] ?? true);
+        $merged['visual_correction_limit'] = max(0.25, min(1, (float) ($merged['visual_correction_limit'] ?? 0.75)));
 
         return $merged;
     }

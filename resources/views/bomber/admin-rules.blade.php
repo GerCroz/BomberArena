@@ -184,7 +184,8 @@
                             <div>
                                 <label class="block font-bold text-slate-300 mb-1">Resultado al Agotar el Tiempo</label>
                                 <select name="timeout_result" class="w-full bg-slate-900 border border-slate-700 focus:border-cyan-400 rounded-xl px-3 py-2 text-white">
-                                    <option value="most_bombs" {{ in_array($activeRules['timeout_result'] ?? 'most_bombs', ['draw', 'most_bombs'], true) ? 'selected' : '' }}>Mayor cantidad de bombas (si igualan: Empate)</option>
+                                    <option value="draw" {{ ($activeRules['timeout_result'] ?? 'draw') === 'draw' ? 'selected' : '' }}>Empate al agotarse el tiempo (clásico)</option>
+                                    <option value="most_bombs" {{ ($activeRules['timeout_result'] ?? '') === 'most_bombs' ? 'selected' : '' }}>Mayor cantidad de bombas (si igualan: Empate)</option>
                                     <option value="most_kills" {{ ($activeRules['timeout_result'] ?? '') === 'most_kills' ? 'selected' : '' }}>Mayor cantidad de bajas (si hay empate en bajas: Empate)</option>
                                 </select>
                             </div>
@@ -294,7 +295,7 @@
                                 <label class="flex items-center gap-2.5 cursor-pointer">
                                     <input type="checkbox" name="player_collisions" value="1" {{ !empty($activeRules['player_collisions']) ? 'checked' : '' }}
                                         class="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0">
-                                    <span class="text-slate-300 font-semibold">Colisiones entre Jugadores Vivos (no pueden ocupar la misma casilla)</span>
+                                    <span class="text-slate-300 font-semibold">Bloquear entre jugadores (desactivado en modo clásico)</span>
                                 </label>
                                 <label class="flex items-center gap-2.5 cursor-pointer">
                                     <input type="checkbox" name="reconnection_enabled" value="1" {{ !empty($activeRules['reconnection_enabled']) ? 'checked' : '' }}
@@ -307,15 +308,31 @@
                                     <span class="text-slate-300 font-semibold">Eliminar por abandono definitivo tras vencer gracia</span>
                                 </label>
                                 <label class="flex items-center gap-2.5 cursor-pointer">
-                                    <input type="checkbox" name="dead_players_block_movement" value="1" {{ !empty($activeRules['dead_players_block_movement']) ? 'checked' : '' }}
+                                    <input type="checkbox" disabled
                                         class="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0">
-                                    <span class="text-slate-300 font-semibold">Cadáveres bloquean paso (por defecto desactivado: se atraviesan libremente)</span>
+                                    <span class="text-slate-300 font-semibold">Los eliminados no bloquean el paso</span>
                                 </label>
                             </div>
                         </div>
                     </div>
 
                     <!-- SECCIÓN D: TABLERO Y POWER-UPS -->
+                    <details class="cyber-panel p-5 sm:p-6 rounded-2xl">
+                        <summary class="font-bold text-slate-300 cursor-pointer">Parámetros técnicos avanzados · próximas partidas</summary>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                            @foreach (['movement_speed' => ['Velocidad (casillas/s)', 2, 6, 0.25], 'simulation_hz' => ['Simulación (20, 25 o 30 Hz)', 20, 30, 5], 'publish_hz' => ['Publicación de estados (Hz)', 5, 30, 1], 'corner_assist' => ['Asistencia de giro (casillas)', 0, 0.25, 0.05], 'visual_correction_limit' => ['Límite de corrección suave (casillas)', 0.25, 1, 0.05]] as $key => [$label, $min, $max, $step])
+                                <label class="block text-slate-300">{{ $label }}
+                                    <input name="{{ $key }}" type="number" min="{{ $min }}" max="{{ $max }}" step="{{ $step }}" value="{{ $activeRules[$key] }}" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono">
+                                </label>
+                            @endforeach
+                            @foreach (['local_prediction' => 'Predicción local', 'remote_interpolation' => 'Interpolación remota'] as $key => $label)
+                                <label class="flex items-center gap-2.5 text-slate-300">
+                                    <input type="hidden" name="{{ $key }}" value="0">
+                                    <input type="checkbox" name="{{ $key }}" value="1" {{ $activeRules[$key] ? 'checked' : '' }}>{{ $label }}
+                                </label>
+                            @endforeach
+                        </div>
+                    </details>
                     <div class="cyber-panel p-5 sm:p-6 rounded-2xl">
                         <div class="flex items-center gap-2.5 pb-3 border-b border-slate-800 mb-4 text-amber-400">
                             <i data-lucide="grid" class="w-5 h-5"></i>

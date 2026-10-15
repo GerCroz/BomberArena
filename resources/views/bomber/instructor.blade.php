@@ -167,7 +167,7 @@
                                 </td>
                                 <td class="py-2 px-3 text-slate-300">{{ $log->source }}</td>
                                 <td class="py-2 px-3 font-mono text-cyan-400/80">{{ $log->destination }}</td>
-                                <td class="py-2 px-3 text-emerald-400 font-mono">{{ $log->latency_ms }} ms</td>
+                                <td class="py-2 px-3 text-emerald-400 font-mono">{{ $log->latency_ms === null ? 'Sin medición' : $log->latency_ms.' ms' }}</td>
                                 <td class="py-2 px-3 text-right">
                                     <button type="button" onclick='inspectPayload(@json($log->payload))' class="text-xs text-indigo-400 hover:underline">
                                         JSON
@@ -299,7 +299,7 @@
                 <td class="py-2 px-3"><span class="event-badge ${badgeClass}">${ev.event_name}</span></td>
                 <td class="py-2 px-3 text-slate-300">${escapeHtml(ev.source || 'Servidor')}</td>
                 <td class="py-2 px-3 font-mono text-cyan-400/80">${escapeHtml(ev.destination || '')}</td>
-                <td class="py-2 px-3 text-emerald-400 font-mono">${ev.latency_ms || 12} ms</td>
+                <td class="py-2 px-3 text-emerald-400 font-mono">${ev.latency_ms == null ? 'Sin medición' : ev.latency_ms + ' ms'}</td>
                 <td class="py-2 px-3 text-right">
                     <button type="button" class="text-xs text-indigo-400 hover:underline json-btn">JSON</button>
                 </td>

@@ -89,6 +89,7 @@ class RoundSynchronizationTest extends TestCase
     public function test_returns_422_for_a_rematch_requested_by_the_winner(): void
     {
         [$room, $state] = $this->createPlayingRoom();
+        unset($state['movement_model']);
         $state['players']['guest_player']['alive'] = false;
         Cache::put("arena_state_{$room->code}", $state, 600);
         app(RoomService::class)->tickRoom($room->code);
@@ -120,7 +121,7 @@ class RoundSynchronizationTest extends TestCase
     }
 
     #[TestWith([4, 1, 'host_player', 'most_bombs'])]
-    #[TestWith([1, 4, 'guest_player', 'draw'])]
+    #[TestWith([1, 4, null, 'draw'])]
     #[TestWith([4, 4, null, 'most_bombs'])]
     public function test_timeout_uses_bombs_placed_by_survivors(int $hostBombs, int $guestBombs, ?string $winnerId, string $policy): void
     {
@@ -143,6 +144,7 @@ class RoundSynchronizationTest extends TestCase
     public function test_a_draw_has_no_loser_who_can_request_rematch(): void
     {
         [$room, $state] = $this->createPlayingRoom();
+        unset($state['movement_model']);
         $state['started_at'] = 1.0;
         Cache::put("arena_state_{$room->code}", $state, 600);
         app(RoomService::class)->tickRoom($room->code);

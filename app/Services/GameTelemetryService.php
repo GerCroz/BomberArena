@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\InstructorTelemetryEvent;
 use App\Models\GameTelemetryLog;
 use Illuminate\Support\Facades\Event;
 
@@ -26,18 +27,18 @@ class GameTelemetryService
                 'source' => $source ?? 'Servidor',
                 'destination' => $destination ?? "arena.{$roomCode}",
                 'payload' => $payload,
-                'latency_ms' => $latencyMs ?? rand(8, 25), // typical local/fast loopback ms
+                'latency_ms' => $latencyMs,
                 'created_at' => now(),
             ]);
 
             // Broadcast to the instructor channel
-            broadcast(new \App\Events\InstructorTelemetryEvent(
+            broadcast(new InstructorTelemetryEvent(
                 roomCode: $roomCode,
                 eventName: $eventName,
                 source: $source ?? 'Servidor',
                 destination: $destination ?? "arena.{$roomCode}",
                 payload: $payload,
-                latencyMs: $latencyMs ?? rand(8, 25),
+                latencyMs: $latencyMs,
                 timestamp: microtime(true)
             ));
         } catch (\Throwable $e) {

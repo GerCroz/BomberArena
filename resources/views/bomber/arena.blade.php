@@ -413,6 +413,7 @@
         const ROOM_CODE = "{{ $room->code }}";
         const CURRENT_PLAYER_ID = "{{ $playerId }}";
         const CSRF_TOKEN = "{{ csrf_token() }}";
+        const INPUT_TOKEN = @json($inputToken ?? null);
 
         let currentRoom = @json($room);
         let gameState = @json($room->game_state);
@@ -424,6 +425,12 @@
         const canvas = document.getElementById('game-canvas');
         let gameRenderer = null;
         let sfx = null;
+        let classicController = null;
+        const inputRequests = new Map();
+        let lastInputSentAt = 0;
+        let lastInputPingAt = null;
+        let keyboardInitialized = false;
+        let touchInitialized = false;
 
         let serverClockOffset = 0;
         let lastProcessedVersion = (gameState && gameState.version) ? gameState.version : 0;
@@ -445,9 +452,9 @@
             }
         });
 
-        function syncServerTime(serverUnixTimestamp) {
+        function syncServerTime(serverUnixTimestamp, rtt = 0) {
             if (typeof serverUnixTimestamp === 'number' && serverUnixTimestamp > 0) {
-                serverClockOffset = (serverUnixTimestamp * 1000) - Date.now();
+                serverClockOffset = (serverUnixTimestamp * 1000) - Date.now() + rtt / 2;
             }
         }
 
@@ -506,6 +513,7 @@
             if (window.BomberEngine) {
                 gameRenderer = new window.BomberEngine.GameRenderer(canvas);
                 sfx = new window.BomberEngine.SoundEngine();
+                if (window.BomberEngine.ClassicController) classicController = new window.BomberEngine.ClassicController();
             }
 
             checkAutoOrientation();
@@ -568,7 +576,15 @@
                 .listen('.GameEvent', (e) => {
                     handleIncomingEvent(e);
                 });
-            window.Echo.connector?.pusher?.connection?.bind('connected', () => fetchRoomState());
+            window.Echo.connector?.pusher?.connection?.bind('disconnected', () => resetClassicInput(false));
+            window.Echo.connector?.pusher?.connection?.bind('unavailable', () => resetClassicInput(false));
+            window.Echo.connector?.pusher?.connection?.bind('connected', () => {
+                if (classicController) { classicController.connected = true; classicController.clear(); classicController.player = null; sendCurrentInput(true); }
+                fetchRoomState();
+            });
+            window.Echo.connector?.pusher?.connection?.bind('message', message => {
+                if (message.event === 'pusher:pong' && lastInputPingAt !== null) { diagnostics.wsRtt = performance.now() - lastInputPingAt; lastInputPingAt = null; }
+            });
         }
 
         function handleIncomingEvent(e) {
@@ -617,6 +633,12 @@
                     processedEventIds.clear();
                     detonatedBombIds.clear();
                     gameState = data.state;
+                    if (classicController) {
+                        classicController.player = null;
+                        classicController.exitedBombs.clear();
+                        classicController.correction = {x:0,y:0};
+                        classicController.lastAcknowledged = 0;
+                    }
                     lastProcessedVersion = gameState.version || 1;
                     lastMoveTime = 0;
                     inputSequence = gameState.input_sequences?.[CURRENT_PLAYER_ID] || 0;
@@ -792,6 +814,7 @@
             const confirmed = state.players?.[CURRENT_PLAYER_ID];
             if (previous && confirmed && Math.abs(previous.x - confirmed.x) + Math.abs(previous.y - confirmed.y) > 1) diagnostics.corrections++;
             gameState = state;
+            if (classicController) classicController.reconcile(state, CURRENT_PLAYER_ID);
             inputSequence = Math.max(inputSequence, state.input_sequences?.[CURRENT_PLAYER_ID] || 0);
             diagnostics.lastReceived = performance.now();
             lastProcessedVersion = state.version;
@@ -1041,6 +1064,8 @@
         }
 
         function initKeyboard() {
+            if (keyboardInitialized) return;
+            keyboardInitialized = true;
             window.addEventListener('keydown', (e) => {
                 if (!gameState || currentRoom.status !== 'playing') return;
                 const now = performance.now();
@@ -1053,21 +1078,34 @@
 
                 if (dir) {
                     e.preventDefault();
+                    if (classicController && gameState.movement_model === 'classic-v2') {
+                        if (!isCountingDown && gameState.players[CURRENT_PLAYER_ID]?.alive && classicController.press(e.code || e.key, gameRenderer ? gameRenderer.screenToLogicalDir(dir) : dir)) sendCurrentInput(true);
+                        return;
+                    }
                     if (heldDirections.has(e.key)) return;
                     heldDirections.set(e.key, dir);
                     beginWalk(dir);
                 } else if (e.code === 'Space') {
                     e.preventDefault();
+                    if (e.repeat) return;
                     sendBomb();
                 }
             });
             window.addEventListener('keyup', e => {
+                if (classicController && gameState?.movement_model === 'classic-v2') {
+                    if (classicController.release(e.code || e.key)) sendCurrentInput(true);
+                    return;
+                }
                 if (!heldDirections.delete(e.key)) return;
                 const direction = [...heldDirections.values()].at(-1);
                 if (direction) beginWalk(direction);
                 else endWalk();
             });
-            window.addEventListener('blur', () => { heldDirections.clear(); endWalk(); });
+            window.addEventListener('blur', () => { heldDirections.clear(); endWalk(); resetClassicInput(true); });
+            window.addEventListener('focus', () => { if (classicController) classicController.lastFrame = null; });
+            window.addEventListener('offline', () => resetClassicInput(false));
+            window.addEventListener('online', () => { if (classicController) { classicController.connected = true; classicController.clear(); fetchRoomState(); } });
+            document.addEventListener('visibilitychange', () => { if (document.hidden) resetClassicInput(true); });
         }
 
         // Check if a tile can be stepped on locally
@@ -1085,7 +1123,7 @@
             // Dead/eliminated players do NOT block movement.
             if (gameState.players) {
                 for (const [pid, p] of Object.entries(gameState.players)) {
-                    if (pid !== CURRENT_PLAYER_ID && p.alive && p.x === x && p.y === y) {
+                    if (gameState.rules?.player_collisions && pid !== CURRENT_PLAYER_ID && p.alive && p.x === x && p.y === y) {
                         return false;
                     }
                 }
@@ -1214,11 +1252,26 @@
 
         // Ergonomic Mobile Touch Controls with Haptics and Hold-to-walk
         function initTouchControls() {
+            if (touchInitialized) return;
+            touchInitialized = true;
             const directions = ['up', 'down', 'left', 'right'];
 
             directions.forEach(dir => {
                 const btn = document.getElementById(`dpad-${dir}`);
                 if (!btn) return;
+                if (classicController && typeof PointerEvent !== 'undefined') {
+                    btn.addEventListener('pointerdown', e => {
+                        e.preventDefault();
+                        if (isCountingDown || currentRoom.status !== 'playing' || !gameState?.players?.[CURRENT_PLAYER_ID]?.alive) return;
+                        btn.setPointerCapture(e.pointerId);
+                        if (classicController.press('pointer:'+e.pointerId, gameRenderer ? gameRenderer.screenToLogicalDir(dir) : dir)) sendCurrentInput(true);
+                    });
+                    const release = e => { if (classicController.release('pointer:'+e.pointerId)) sendCurrentInput(true); };
+                    btn.addEventListener('pointerup', release);
+                    btn.addEventListener('pointercancel', release);
+                    btn.addEventListener('lostpointercapture', release);
+                    return;
+                }
 
                 const startPress = (e) => {
                     e.preventDefault();
@@ -1332,6 +1385,7 @@
         }
 
         function canRequestRematch() {
+            if (gameState?.movement_model === 'classic-v2') return gameState.is_game_over && !!gameState.players?.[CURRENT_PLAYER_ID] && gameState.rules?.allow_rematch !== false;
             return gameState?.is_game_over && !!gameState.winner_id
                 && gameState.winner_id !== CURRENT_PLAYER_ID
                 && !!gameState.players?.[CURRENT_PLAYER_ID]
@@ -1438,6 +1492,9 @@
         let tickRequestController = null;
 
         function stopRound() {
+            if (classicController) classicController.clear();
+            for (const request of inputRequests.values()) request.abort();
+            inputRequests.clear();
             visualPrediction = null;
             if (gameRenderer) gameRenderer.localPreview = null;
             if (walkRefreshInterval) clearInterval(walkRefreshInterval);
@@ -1460,6 +1517,7 @@
         function startGameLoop() {
             startTimer();
             updateHud();
+            if (gameRenderer?.metrics) { gameRenderer.frameWindowStarted = performance.now(); gameRenderer.metrics.frames = 0; }
             if (animFrameId) cancelAnimationFrame(animFrameId);
             if (serverTickInterval) clearInterval(serverTickInterval);
             serverTickInterval = setInterval(() => {
@@ -1477,14 +1535,72 @@
                 const curServerTime = getCurrentServerTime();
 
                 if (gameRenderer) {
+                    if (classicController && gameState.movement_model === 'classic-v2') {
+                        const preview = classicController.update(gameState, CURRENT_PLAYER_ID, performance.now());
+                        gameRenderer.localPreview = preview;
+                        if (classicController.direction !== null && performance.now() - lastInputSentAt >= 150) sendCurrentInput();
+                    } else {
                     reconcileVisualPrediction();
                     gameRenderer.localPreview = visualPrediction ? { id: CURRENT_PLAYER_ID, x: visualPrediction.x, y: visualPrediction.y } : null;
-                    gameRenderer.diagnostics = diagnosticsEnabled ? { ...diagnostics, room: ROOM_CODE } : null;
+                    }
+                    gameRenderer.diagnostics = diagnosticsEnabled ? { ...diagnostics, room: ROOM_CODE, pressed: classicController?.direction, sequence: classicController?.sequence, acknowledged: gameState.input_ack?.[CURRENT_PLAYER_ID] || 0, pending: inputRequests.size, connection: classicController?.connected ? 'conectado' : 'desconectado', corrections: classicController?.corrections ?? diagnostics.corrections } : null;
                     gameRenderer.render(gameState, CURRENT_PLAYER_ID, performance.now() / 1000, curServerTime);
                 }
                 animFrameId = requestAnimationFrame(loop);
             }
             loop();
+        }
+
+        function resetClassicInput(notify) {
+            if (!classicController) return;
+            classicController.clear();
+            if (!notify) {
+                classicController.connected = false; pendingActionQueue = [];
+                if (actionRequestController) actionRequestController.abort();
+                for (const request of inputRequests.values()) request.abort();
+                inputRequests.clear();
+            }
+            if (notify) sendCurrentInput(true);
+        }
+
+        async function sendCurrentInput(force = false) {
+            if (!classicController?.connected || !gameState?.players?.[CURRENT_PLAYER_ID]?.alive || gameState.is_game_over || currentRoom.status !== 'playing' || isCountingDown) return;
+            if (inputRequests.size >= 2) {
+                if (!force) return;
+                const oldest = inputRequests.keys().next().value;
+                inputRequests.get(oldest).abort();inputRequests.delete(oldest);
+            }
+            const generation = roundGeneration;
+            const sequence = ++classicController.sequence;
+            const started = performance.now();
+            const direction = classicController.direction;
+            const connection = window.Echo?.connector?.pusher?.connection;
+            if (INPUT_TOKEN && connection?.state === 'connected') {
+                lastInputPingAt = performance.now();
+                connection.send_event('pusher:ping', { arena_input: { room: ROOM_CODE, player: CURRENT_PLAYER_ID, token: INPUT_TOKEN, round_id: gameState.round_id, sequence, direction, sampled_at: getCurrentServerTime() } });
+                lastInputSentAt = performance.now();
+                return;
+            }
+            const request = new AbortController();
+            inputRequests.set(sequence, request);
+            lastInputSentAt = performance.now();
+            try {
+                const response = await fetch(`/api/rooms/${ROOM_CODE}/input`, {
+                    method: 'POST', signal: AbortSignal.any([request.signal, AbortSignal.timeout(3000)]),
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
+                    body: JSON.stringify({ round_id: gameState.round_id, sequence, direction, sampled_at: getCurrentServerTime() })
+                });
+                const data = await response.json();
+                if (generation !== roundGeneration) return;
+                diagnostics.rtt = performance.now() - started;
+                if (data.server_time) syncServerTime(data.server_time, diagnostics.rtt);
+                (data.events || []).forEach(handleIncomingEvent);
+                applyStateSnapshot(data.state);
+            } catch (error) {
+                if (generation === roundGeneration && !request.signal.aborted) resetClassicInput(false);
+            } finally {
+                inputRequests.delete(sequence);
+            }
         }
 
         async function sendServerTick() {

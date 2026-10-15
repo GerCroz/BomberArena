@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Room;
+use App\Services\ArenaInputService;
 use App\Services\PlayerIdentityService;
 use App\Services\RoomService;
 use Illuminate\Http\JsonResponse;
@@ -44,9 +45,11 @@ class BomberGameController extends Controller
         $room->game_state = Cache::get("arena_state_{$room->code}") ?? $room->game_state;
         $playerId = $this->identity->getOrCreatePlayerId($request);
         $nickname = $this->identity->getNickname($request);
+        $ownsIdentity = $request->cookie(PlayerIdentityService::COOKIE_NAME) === $playerId;
+        $inputToken = $ownsIdentity && $room->players->contains('player_id', $playerId) ? ArenaInputService::token($room->code, $playerId) : null;
 
         return response()
-            ->view('bomber.arena', compact('room', 'playerId', 'nickname'))
+            ->view('bomber.arena', compact('room', 'playerId', 'nickname', 'inputToken'))
             ->cookie(PlayerIdentityService::COOKIE_NAME, $playerId, 60 * 24 * 7)
             ->cookie(PlayerIdentityService::NICKNAME_COOKIE, $nickname, 60 * 24 * 7);
     }
@@ -189,6 +192,19 @@ class BomberGameController extends Controller
     /**
      * API: Advance server room simulation tick.
      */
+    public function input(Request $request, string $code): JsonResponse
+    {
+        $input = $request->validate([
+            'round_id' => ['required', 'string', 'max:64'],
+            'sequence' => ['required', 'integer', 'min:1', 'max:2147483647'],
+            'direction' => ['nullable', 'string', 'in:up,down,left,right'],
+            'sampled_at' => ['required', 'numeric'],
+        ]);
+        $result = $this->roomService->updateInput($code, $this->identity->getOrCreatePlayerId($request), $input['round_id'], (int) $input['sequence'], $input['direction'] ?? null, (float) $input['sampled_at']);
+
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
     public function tick(Request $request, string $code): JsonResponse
     {
         $validated = $request->validate(['round_id' => ['nullable', 'string', 'max:64']]);

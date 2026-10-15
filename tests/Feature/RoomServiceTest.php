@@ -133,6 +133,7 @@ class RoomServiceTest extends TestCase
 
         $state = $startRes['state'];
         // Place p0 at (1, 1) and p1 at (3, 1). Target tile between them is (2, 1).
+        $state['rules']['player_collisions'] = true;
         $state['players']['p0']['x'] = 1;
         $state['players']['p0']['y'] = 1;
         $state['players']['p1']['x'] = 3;

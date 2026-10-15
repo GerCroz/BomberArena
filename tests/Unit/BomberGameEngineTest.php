@@ -2,8 +2,8 @@
 
 namespace Tests\Unit;
 
-use Tests\TestCase;
 use App\Services\BomberGameEngine;
+use Tests\TestCase;
 
 class BomberGameEngineTest extends TestCase
 {
@@ -12,7 +12,7 @@ class BomberGameEngineTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->engine = new BomberGameEngine();
+        $this->engine = new BomberGameEngine;
     }
 
     public function test_initial_state_generates_correct_dimensions_and_safe_spawns(): void
@@ -168,6 +168,7 @@ class BomberGameEngineTest extends TestCase
         $state['players']['p2']['y'] = 1;
 
         // p1 attempts to move right into p2's tile
+        $state['rules']['player_collisions'] = true;
         $res = $this->engine->handleMove($state, 'p1', 'right');
 
         $this->assertFalse($res['success']);
@@ -210,13 +211,13 @@ class BomberGameEngineTest extends TestCase
         // Bomb 1 at (1, 1) - expired
         $state['bombs']['b1'] = [
             'id' => 'b1', 'x' => 1, 'y' => 1, 'owner_id' => 'p1',
-            'range' => 1, 'planted_at' => $now - 3, 'explodes_at' => $now - 1, 'state' => 'active'
+            'range' => 1, 'planted_at' => $now - 3, 'explodes_at' => $now - 1, 'state' => 'active',
         ];
 
         // Bomb 2 at (10, 8) - still active, not expired
         $state['bombs']['b2'] = [
             'id' => 'b2', 'x' => 10, 'y' => 8, 'owner_id' => 'p2',
-            'range' => 1, 'planted_at' => $now, 'explodes_at' => $now + 5, 'state' => 'active'
+            'range' => 1, 'planted_at' => $now, 'explodes_at' => $now + 5, 'state' => 'active',
         ];
 
         $results = $this->engine->checkAndDetonateExpiredBombs($state);
@@ -239,11 +240,11 @@ class BomberGameEngineTest extends TestCase
 
         $state['bombs']['b1'] = [
             'id' => 'b1', 'x' => 1, 'y' => 1, 'owner_id' => 'p1',
-            'range' => 2, 'planted_at' => $now, 'explodes_at' => $now + 2, 'state' => 'active'
+            'range' => 2, 'planted_at' => $now, 'explodes_at' => $now + 2, 'state' => 'active',
         ];
         $state['bombs']['b2'] = [
             'id' => 'b2', 'x' => 2, 'y' => 1, 'owner_id' => 'p1',
-            'range' => 2, 'planted_at' => $now, 'explodes_at' => $now + 2, 'state' => 'active'
+            'range' => 2, 'planted_at' => $now, 'explodes_at' => $now + 2, 'state' => 'active',
         ];
 
         $res = $this->engine->detonateBomb($state, 'b1');

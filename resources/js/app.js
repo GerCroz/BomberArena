@@ -38,6 +38,7 @@ import { THEME } from './game/theme.js';
 import { getCharacterSVG } from './game/assets/characters.js';
 import { GameRenderer } from './game/rendering/gameRenderer.js';
 import { SoundEngine } from './game/audio/soundEngine.js';
+import { ClassicController } from './game/classicMovement.js';
 
 // Expose Lucide icons globally
 window.lucide = {
@@ -86,6 +87,7 @@ window.BomberEngine = {
     GameRenderer,
     SoundEngine,
     getCharacterSVG,
+    ClassicController,
 };
 
 // Auto-initialize Lucide icons when DOM is ready

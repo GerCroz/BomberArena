@@ -185,12 +185,12 @@ export class GameRenderer {
             const candidates = new Map();
             for (const player of list) {
                 const preview = player.alive && this.localPreview?.id === player.id ? this.localPreview : null;
-                const s = this.toScreen(preview?.x ?? player.x, preview?.y ?? player.y);
+                const s = this.toScreen(preview?.x ?? player.position_x ?? player.x, preview?.y ?? player.position_y ?? player.y);
                 const target = { x: s.col * ts + half, y: s.row * ts + half };
                 const old = this.displayPos.get(player.id);
                 const distance = old ? Math.abs(old.x - target.x) + Math.abs(old.y - target.y) : 0;
                 const diagonal = old && Math.abs(old.x - target.x) > 1 && Math.abs(old.y - target.y) > 1;
-                const next = !old || !player.alive || diagonal || distance > ts + 1
+                const next = preview?.continuous || !old || !player.alive || diagonal || distance > ts + 1 || gameState.rules?.remote_interpolation === false
                     ? target : { x: old.x + (target.x - old.x) * lerp, y: old.y + (target.y - old.y) * lerp };
                 next.targetX = target.x;
                 next.targetY = target.y;
@@ -203,7 +203,7 @@ export class GameRenderer {
             for (let i = 0; i < living.length; i++) {
                 for (let j = i + 1; j < living.length; j++) {
                     const a = candidates.get(living[i].id), b = candidates.get(living[j].id);
-                    if (Math.abs(a.x - b.x) < ts * 0.7 && Math.abs(a.y - b.y) < ts * 0.7) conflict = true;
+                    if (gameState.rules?.player_collisions !== false && Math.abs(a.x - b.x) < ts * 0.7 && Math.abs(a.y - b.y) < ts * 0.7) conflict = true;
                 }
             }
             if (conflict) {
@@ -216,7 +216,7 @@ export class GameRenderer {
             this.displayPos = candidates;
 
             for (const player of list) {
-                const s = this.toScreen(player.x, player.y);
+                const s = this.toScreen(player.position_x ?? player.x, player.position_y ?? player.y);
                 const tx = s.col * ts + half;
                 const ty = s.row * ts + half;
 
@@ -230,8 +230,8 @@ export class GameRenderer {
 
                 drawCharacter(ctx, dp.x, dp.y, ts, {
                     ...player,
-                    direction: this.logicalToScreenDir(player.direction || 'down'),
-                    isMoving: travelling || recentlyMoved,
+                    direction: this.logicalToScreenDir((this.localPreview?.id === player.id ? this.localPreview.direction : player.direction) || 'down'),
+                    isMoving: (this.localPreview?.id === player.id && this.localPreview.isMoving) || travelling || recentlyMoved,
                 }, motionTime, player.id === currentUserId);
                 if (this.diagnostics && player.alive) {
                     ctx.strokeStyle = '#00ffff';
@@ -246,14 +246,15 @@ export class GameRenderer {
         }
         if (this.diagnostics) {
             ctx.fillStyle = '#000000';
-            ctx.fillRect(0, 0, this.canvas.width, 70);
+            ctx.fillRect(0, 0, this.canvas.width, 83);
             ctx.fillStyle = '#ffffff';
             ctx.font = '11px monospace';
-            ctx.fillText(`Sala ${this.diagnostics.room} tick ${gameState.tick ?? 0} v${gameState.version} seq ${gameState.input_sequences?.[currentUserId] ?? 0}`, 4, 13);
-            ctx.fillText(`RTT HTTP ${this.diagnostics.rtt.toFixed(0)}ms estados descartados ${this.diagnostics.staleStates} cambios ${this.diagnostics.corrections}`, 4, 26);
+            ctx.fillText(`Sala ${this.diagnostics.room} tick ${gameState.simulation_tick ?? gameState.tick ?? 0} v${gameState.version} seq ${this.diagnostics.sequence ?? gameState.input_sequences?.[currentUserId] ?? 0}`, 4, 13);
+            ctx.fillText(`RTT WS ${Math.round(this.diagnostics.wsRtt ?? 0)}ms HTTP ${this.diagnostics.rtt.toFixed(0)}ms descartados ${this.diagnostics.staleStates} cambios ${this.diagnostics.corrections}`, 4, 26);
             ctx.fillText(`Ultimo ${Math.round(now-this.diagnostics.lastReceived)}ms eventos ${this.diagnostics.events} vivos ${Object.values(gameState.players).filter(p=>p.alive).length}`, 4, 39);
             ctx.fillText(`FPS ${this.metrics.fps.toFixed(0)} correcciones visuales ${this.metrics.visualCorrections} error max ${this.metrics.maxVisualError.toFixed(2)} casillas`, 4, 52);
             ctx.fillText(Object.values(gameState.players).map(p => `${p.slot ?? '?'}:${p.alive ? 'vivo' : 'eliminado'}`).join(' '), 4, 65);
+            ctx.fillText(`Entrada ${this.diagnostics.pressed ?? 'quieto'} ACK ${this.diagnostics.acknowledged ?? 0} pendientes ${this.diagnostics.pending ?? 0} ${this.diagnostics.connection ?? ''}`,4,78);
         }
     }
 }

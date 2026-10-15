@@ -27,6 +27,7 @@ Route::prefix('api/rooms')->group(function () {
     Route::post('/{code}/move', [BomberGameController::class, 'move'])->name('api.rooms.move');
     Route::post('/{code}/bomb', [BomberGameController::class, 'bomb'])->name('api.rooms.bomb');
     Route::post('/{code}/actions', [BomberGameController::class, 'actions'])->name('api.rooms.actions');
+    Route::post('/{code}/input', [BomberGameController::class, 'input'])->name('api.rooms.input');
     Route::post('/{code}/detonate', [BomberGameController::class, 'detonate'])->name('api.rooms.detonate');
     Route::post('/{code}/tick', [BomberGameController::class, 'tick'])->name('api.rooms.tick');
     Route::post('/{code}/rematch', [BomberGameController::class, 'rematch'])->name('api.rooms.rematch');

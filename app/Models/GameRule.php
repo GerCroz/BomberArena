@@ -40,7 +40,7 @@ class GameRule extends Model
             'countdown_seconds' => 3,
             'end_on_last_survivor' => true,
             'draw_on_simultaneous_elimination' => true,
-            'timeout_result' => 'most_bombs',
+            'timeout_result' => 'draw',
             'allow_rematch' => true,
 
             // B. Bombas y explosiones
@@ -54,7 +54,7 @@ class GameRule extends Model
 
             // C. Jugadores
             'player_initial_speed' => 1,
-            'player_collisions' => true,
+            'player_collisions' => false,
             'reconnection_enabled' => true,
             'reconnect_grace_seconds' => 15,
             'eliminate_on_disconnect' => true,
@@ -67,6 +67,14 @@ class GameRule extends Model
             'powerups_enabled' => true,
             'powerup_drop_chance_percent' => 25,
             'random_map_generation' => true,
+            'movement_defaults_version' => 2,
+            'movement_speed' => 4.0,
+            'simulation_hz' => 20,
+            'publish_hz' => 10,
+            'corner_assist' => 0.25,
+            'local_prediction' => true,
+            'remote_interpolation' => true,
+            'visual_correction_limit' => 0.75,
         ];
     }
 }

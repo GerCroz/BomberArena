@@ -174,6 +174,7 @@ const template = readFileSync(new URL('../../resources/views/bomber/arena.blade.
 const script = template.slice(template.indexOf('const ROOM_CODE ='), template.lastIndexOf('</script>'))
     .replace(/\{\{[^}]*\}\}/g, '180')
     .replace('@json($room)', 'initialRoom')
+    .replace('@json($inputToken ?? null)', 'null')
     .replace('@json($room->game_state)', 'initialState');
 
 function createClient(fetchResponse = async () => ({ ok: true, json: async () => ({ success: true }) })) {

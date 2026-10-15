@@ -13,6 +13,8 @@ use Illuminate\Support\Str;
 
 class RoomService
 {
+    private array $lastMutationTimes = [];
+
     protected BomberGameEngine $engine;
 
     protected GameTelemetryService $telemetry;
@@ -315,6 +317,7 @@ class RoomService
      */
     protected function mutateState(string $code, callable $mutation, ?string $roundId = null): array
     {
+        $mutationStarted = hrtime(true);
         $cleanCode = strtoupper($code);
         $lock = Cache::lock("arena_lock_{$cleanCode}", 10);
 
@@ -347,8 +350,29 @@ class RoomService
             }
 
             $previousVersion = $state['version'];
+            if (app()->environment('local')) {
+                $state['diagnostics']['previous_mutation_ms'] = $this->lastMutationTimes[$cleanCode] ?? 0;
+            }
+            foreach ($state['players'] as $id => $player) {
+                $input = Cache::get(ArenaInputService::key($cleanCode, $state['round_id'], $id));
+                if ($player['alive'] && $input && $input['sequence'] > ($state['input_ack'][$id] ?? 0)) {
+                    $inputReceivedAt = $input['received_at'];
+                    $previousInput = $state['current_inputs'][$id] ?? null;
+                    if ($previousInput && $previousInput['direction'] === $input['direction'] && $previousInput['expires_at'] >= $input['received_at']) {
+                        $input['received_at'] = $previousInput['received_at'];
+                    }
+                    $state['current_inputs'][$id] = $input;
+                    $state['input_ack'][$id] = $input['sequence'];
+                    $state['players'][$id]['last_seen_at'] = $inputReceivedAt;
+                    $state['version']++;
+                }
+            }
 
+            $simulationStarted = hrtime(true);
             array_push($events, ...$this->engine->advanceMovement($state, (float) now()->format('U.u')));
+            if (app()->environment('local')) {
+                $state['diagnostics']['simulation_ms'] = (hrtime(true) - $simulationStarted) / 1_000_000;
+            }
             if (empty($state['is_game_over'])) {
                 $result = $mutation($state, $events, $telemetry);
             } else {
@@ -370,7 +394,11 @@ class RoomService
                 $result['finish_reason'] = $state['finish_reason'] ?? null;
             }
 
-            if ($state['version'] !== $previousVersion) {
+            $publishTime = (float) now()->format('U.u');
+            $publishInterval = 1 / (int) ($state['rules']['publish_hz'] ?? 10);
+            if ($state['version'] > ($state['last_published_version'] ?? $previousVersion) && ($publishTime - ($state['last_published_at'] ?? 0) >= $publishInterval || ! empty($state['is_game_over']))) {
+                $state['last_published_at'] = $publishTime;
+                $state['last_published_version'] = $state['version'];
                 $events[] = ['state_updated', ['state' => $state]];
             }
             Cache::put($this->stateKey($cleanCode), $state, 1800);
@@ -433,12 +461,42 @@ class RoomService
             $this->telemetry->recordEvent($cleanCode, $name, $source, "arena.{$cleanCode}", $payload);
         }
 
+        $this->lastMutationTimes[$cleanCode] = (hrtime(true) - $mutationStarted) / 1_000_000;
+
         return $result;
     }
 
     /**
      * Process an ordered batch of player actions (moves and bombs) atomically.
      */
+    public function updateInput(string $code, string $playerId, string $roundId, int $sequence, ?string $direction, float $sampledAt): array
+    {
+        return $this->mutateState($code, function (array &$state, array &$events, array &$telemetry) use ($playerId, $sequence, $direction, $sampledAt): array {
+            if (! isset($state['players'][$playerId]) || ! $state['players'][$playerId]['alive']) {
+                return ['success' => false, 'error' => 'Jugador no activo'];
+            }
+            $time = (float) now()->format('U.u');
+            if ($sequence <= ($state['input_ack'][$playerId] ?? 0)) {
+                return ['success' => true, 'duplicate' => true];
+            }
+            if ($direction !== null && ($time - $sampledAt > 0.5 || $sampledAt > $time + 0.1)) {
+                return ['success' => false, 'stale_input' => true, 'error' => 'Entrada vencida'];
+            }
+            $previous = $state['current_inputs'][$playerId] ?? null;
+            $receivedAt = $previous && $previous['direction'] === $direction && $previous['expires_at'] >= $time ? $previous['received_at'] : $time;
+            $state['current_inputs'][$playerId] = ['direction' => $direction, 'sequence' => $sequence, 'received_at' => $receivedAt, 'expires_at' => $direction === null ? $time : min($time + 0.5, $sampledAt + 0.5)];
+            $state['input_ack'][$playerId] = $sequence;
+            $state['players'][$playerId]['last_seen_at'] = $time;
+            unset($state['movement_intents'][$playerId]);
+            $state['version']++;
+            if (! isset($state['simulated_at']) || $state['simulated_at'] < $time - 0.1) {
+                $state['simulated_at'] = $time;
+            }
+
+            return ['success' => true, 'input_ack' => $sequence];
+        }, $roundId);
+    }
+
     public function handleActions(string $code, string $playerId, array $actions, ?string $roundId = null, ?int $sequence = null): array
     {
         return $this->mutateState($code, function (array &$state, array &$events, array &$telemetry) use ($playerId, $actions, $sequence) {
@@ -665,7 +723,7 @@ class RoomService
         }
 
         // Check if rematch is allowed in room rules
-        if (empty($previousState['winner_id']) || $previousState['winner_id'] === $playerId) {
+        if (($previousState['movement_model'] ?? null) !== 'classic-v2' && (empty($previousState['winner_id']) || $previousState['winner_id'] === $playerId)) {
             return ['success' => false, 'error' => 'Solo los perdedores pueden solicitar revancha'];
         }
 

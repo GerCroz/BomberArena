@@ -43,7 +43,7 @@ class MultiplayerAuditTest extends TestCase
         $this->freezeTime();
         $engine = new BomberGameEngine;
         $state = $this->state(count($positions));
-        $state['rules']['player_collisions'] = false;
+        $state['rules']['player_collisions'] = true;
         $state['rules']['dead_players_block_movement'] = true;
         foreach ($positions as $i => [$x, $y]) {
             $state['players']['p'.$i]['x'] = $x;
@@ -462,6 +462,7 @@ class MultiplayerAuditTest extends TestCase
         $this->freezeTime();
         $engine = new BomberGameEngine;
         $state = $this->state(2);
+        $state['rules']['player_collisions'] = true;
         $time = $state['started_at'];
         $state['players']['p1']['x'] = 3;
         $state['players']['p1']['y'] = 1;

@@ -113,7 +113,7 @@ class AdminRulesController extends Controller
             'countdown_seconds' => ['required', 'integer', 'min:0', 'max:10'],
             'end_on_last_survivor' => ['nullable', 'boolean'],
             'draw_on_simultaneous_elimination' => ['nullable', 'boolean'],
-            'timeout_result' => ['required', 'string', 'in:most_bombs,most_kills'],
+            'timeout_result' => ['required', 'string', 'in:draw,most_bombs,most_kills'],
             'allow_rematch' => ['nullable', 'boolean'],
 
             'bomb_fuse_ms' => ['required', 'integer', 'min:500', 'max:10000'],
@@ -137,6 +137,13 @@ class AdminRulesController extends Controller
             'random_map_generation' => ['nullable', 'boolean'],
 
             'change_summary' => ['nullable', 'string', 'max:255'],
+            'movement_speed' => ['nullable', 'numeric', 'min:2', 'max:6'],
+            'simulation_hz' => ['nullable', 'integer', 'in:20,25,30'],
+            'publish_hz' => ['nullable', 'integer', 'min:5', 'max:30', 'lte:simulation_hz'],
+            'corner_assist' => ['nullable', 'numeric', 'min:0', 'max:0.25'],
+            'local_prediction' => ['nullable', 'boolean'],
+            'remote_interpolation' => ['nullable', 'boolean'],
+            'visual_correction_limit' => ['nullable', 'numeric', 'min:0.25', 'max:1'],
         ]);
 
         $settings = [
@@ -172,6 +179,11 @@ class AdminRulesController extends Controller
             'random_map_generation' => $request->boolean('random_map_generation'),
         ];
 
+        foreach (['movement_speed', 'simulation_hz', 'publish_hz', 'corner_assist', 'local_prediction', 'remote_interpolation', 'visual_correction_limit'] as $key) {
+            if (array_key_exists($key, $validated)) {
+                $settings[$key] = $validated[$key];
+            }
+        }
         $rule = $this->rulesService->saveNewRules(
             $settings,
             $user?->id,
