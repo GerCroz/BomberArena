@@ -175,6 +175,8 @@ const script = template.slice(template.indexOf('const ROOM_CODE ='), template.la
     .replace(/\{\{[^}]*\}\}/g, '180')
     .replace('@json($room)', 'initialRoom')
     .replace('@json($inputToken ?? null)', 'null')
+    .replace('@json(\\App\\Services\\CharacterCatalog::CHARACTERS)', '{}')
+    .replace("@json(route('lobby'))", "'/lobby'")
     .replace('@json($room->game_state)', 'initialState');
 
 function createClient(fetchResponse = async () => ({ ok: true, json: async () => ({ success: true }) })) {
@@ -444,8 +446,8 @@ for (const winner of ['180', 'other', null]) {
 
         assert.equal(client.nodes.get('gameover-title').innerText, winner === '180' ? '¡VICTORIA!' : (winner ? 'DERROTA' : '¡TIEMPO AGOTADO!'));
         assert.equal(client.run('victories'), winner === '180' ? 1 : 0);
-        assert.equal(client.nodes.get('rematch-button').classList.contains('hidden'), winner !== 'other');
-        assert.equal(client.calls.length, winner === 'other' ? 1 : 0);
+        assert.equal(client.nodes.get('rematch-button').classList.contains('hidden'), winner === '180');
+        assert.equal(client.calls.length, winner !== '180' ? 1 : 0);
     });
 }
 

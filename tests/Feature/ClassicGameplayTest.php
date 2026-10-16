@@ -10,6 +10,7 @@ use App\Services\BomberGameEngine;
 use App\Services\ClassicMovement;
 use App\Services\GameRulesService;
 use App\Services\RoomService;
+use App\Services\RoomSocialService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
@@ -196,7 +197,12 @@ class ClassicGameplayTest extends TestCase
         $result = $service->tickRoom($code);
         $this->assertNull($result['state']['winner_id']);
 
-        $rematch = $service->requestRematch($code, 'host_player', $round);
+        $social = app(RoomSocialService::class);
+        $social->heartbeat($code, 'host_player');
+        $social->heartbeat($code, 'guest_player');
+        $vote = $service->requestRematch($code, 'host_player', $round);
+        $this->assertTrue($vote['success']);
+        $rematch = $social->respond($code, 'guest_player', $vote['rematch']['id'], $round, true);
 
         $this->assertTrue($rematch['success']);
         $this->assertNotSame($round, $rematch['state']['round_id']);

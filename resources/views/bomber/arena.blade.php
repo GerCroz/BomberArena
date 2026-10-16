@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Sala {{ $room->code }} — Bomber Arena</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -256,6 +257,9 @@
             <p class="text-slate-400 text-xs sm:text-sm mb-6">Comparte el código con tus contrincantes (2 a 4 jugadores).</p>
 
             <!-- Slots Grid -->
+            <label class="block text-sm text-slate-300 mb-4">Tu personaje · mismas capacidades
+                <select id="room-character" class="mt-2 rounded-xl border border-slate-700 bg-slate-900 text-white px-4 py-2"></select>
+            </label>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" id="lobby-slots-grid">
                 <!-- Dynamically rendered slots with character SVG avatars -->
             </div>
@@ -275,6 +279,7 @@
                 </button>
             </div>
             <div id="lobby-warning" class="text-xs text-amber-400 mt-3.5 font-semibold hidden"></div>
+            <button type="button" onclick="window.ArenaSocial?.leave()" class="text-sm text-slate-400 underline mt-4 cursor-pointer">Abandonar sala y volver al lobby</button>
         </div>
 
         <!-- PLAYING SCREEN -->
@@ -301,7 +306,7 @@
                 </div>
 
                 <!-- Match Over Modal -->
-                <div id="gameover-modal" class="absolute inset-0 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-4 text-center hidden z-30">
+                <div id="gameover-modal" class="absolute inset-0 bg-black/85 backdrop-blur-md flex flex-col items-center justify-start sm:justify-center overflow-y-auto p-4 text-center hidden z-30">
                     <!-- Winner Avatar Preview Spot -->
                     <div id="gameover-avatar-podium" class="mb-2 flex items-center justify-center"></div>
 
@@ -313,12 +318,14 @@
                         <!-- Stats rows -->
                     </div>
 
+                    <label class="text-xs text-slate-300 mb-3">Personaje para la próxima partida <select id="result-character" class="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1"></select></label>
+                    <div id="rematch-voting" class="w-full max-w-sm flex flex-col gap-2 mb-3" aria-live="polite"></div>
                     <div class="flex gap-3">
                         <button type="button" id="rematch-button" onclick="requestRematch()" class="arcade-font px-5 py-2.5 rounded-xl bg-cyan-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-cyan-400/40 hover:bg-cyan-300 flex items-center gap-2 cursor-pointer hidden">
                             <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
-                            <span>REVANCHA</span>
+                            <span>Solicitar revancha</span>
                         </button>
-                        <a href="{{ route('lobby') }}" class="arcade-font px-5 py-2.5 rounded-xl bg-slate-800 text-slate-200 font-bold text-xs uppercase tracking-wider hover:bg-slate-700 flex items-center gap-2 cursor-pointer">
+                        <a href="{{ route('lobby') }}" onclick="if(window.ArenaSocial){event.preventDefault();window.ArenaSocial.leave();}" class="arcade-font px-5 py-2.5 rounded-xl bg-slate-800 text-slate-200 font-bold text-xs uppercase tracking-wider hover:bg-slate-700 flex items-center gap-2 cursor-pointer">
                             <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
                             <span>LOBBY</span>
                         </a>
@@ -523,6 +530,15 @@
             });
 
             initEcho();
+            if (window.BomberRoomSocial) window.ArenaSocial = window.BomberRoomSocial.mount({
+                roomCode: ROOM_CODE, playerId: CURRENT_PLAYER_ID, csrf: CSRF_TOKEN,
+                getRoom: () => currentRoom, getState: () => gameState,
+                now: getCurrentServerTime,
+                refresh: fetchRoomState, canRequest: canRequestRematch,
+                characters: @json(\App\Services\CharacterCatalog::CHARACTERS),
+                lobbyUrl: @json(route('lobby')),
+                started: data => handleIncomingEvent({type:'game_started',data:{state:data.state,server_time:data.server_time,rules:data.state.rules,duration:data.state.duration_seconds}})
+            });
             updateLobbyView();
             initKeyboard();
             initTouchControls();
@@ -786,6 +802,7 @@
                 if (data.game_state && gameState && data.game_state.round_id === gameState.round_id && data.game_state.version < lastProcessedVersion) return;
                 currentRoom = data.room;
                 currentRoom.players = data.players;
+                window.ArenaSocial?.sync(currentRoom);
                 applyStateSnapshot(data.game_state);
                 if (data.server_time) syncServerTime(data.server_time);
                 if (gameState && typeof gameState.version === 'number') {
@@ -836,8 +853,8 @@
                 'neon-green': { border: 'border-emerald-400', text: 'text-emerald-400', bg: 'bg-emerald-950/40' },
             };
 
-            for (let i = 0; i < 4; i++) {
-                const p = currentRoom.players[i];
+            for (let i = 0; i < (currentRoom.max_players || 4); i++) {
+                const p = currentRoom.players.find(player => player.slot_index === i);
                 const card = document.createElement('div');
                 card.className = 'p-3 rounded-2xl border flex flex-col items-center justify-between min-h-[140px] transition-all ';
 
@@ -1360,6 +1377,7 @@
         }
 
         async function requestRematch() {
+            if (window.ArenaSocial) return window.ArenaSocial.requestRematch();
             if (rematchInFlight || !canRequestRematch()) return;
             rematchInFlight = true;
             haptics.heavy();
@@ -1375,6 +1393,7 @@
                     alert(data.error || 'No se pudo iniciar la revancha');
                     return;
                 }
+                if (data.rematch) { currentRoom.rematch_request = data.rematch; return; }
                 handleIncomingEvent({ type: 'game_started', data: { state: data.state, server_time: data.server_time, rules: data.state.rules, duration: data.state.duration_seconds } });
             } catch (err) {
                 console.error(err);
@@ -1385,11 +1404,10 @@
         }
 
         function canRequestRematch() {
-            if (gameState?.movement_model === 'classic-v2') return gameState.is_game_over && !!gameState.players?.[CURRENT_PLAYER_ID] && gameState.rules?.allow_rematch !== false;
-            return gameState?.is_game_over && !!gameState.winner_id
-                && gameState.winner_id !== CURRENT_PLAYER_ID
-                && !!gameState.players?.[CURRENT_PLAYER_ID]
-                && gameState.rules?.allow_rematch !== false;
+            return gameState?.is_game_over && gameState.finish_reason !== 'ADMIN_CANCELLED' && !!gameState.players?.[CURRENT_PLAYER_ID] && gameState.rules?.allow_rematch !== false
+                && (gameState.winner_id ? gameState.winner_id !== CURRENT_PLAYER_ID || gameState.rules?.rematch_losers_only === false : gameState.rules?.rematch_on_draw !== false)
+                && (!(gameState.rules?.max_consecutive_rematches > 0) || (currentRoom.rematch_count || 0) < gameState.rules.max_consecutive_rematches)
+                && !(currentRoom.rematch_request?.status === 'pending' && currentRoom.rematch_request.expires_at > getCurrentServerTime());
         }
 
         function finishRoundPresentation(data) {
@@ -1446,7 +1464,9 @@
             } else if (reason === 'TIME_EXPIRED') {
                 title.innerText = '¡TIEMPO AGOTADO!';
                 title.className = 'arcade-font text-3xl sm:text-5xl font-black text-amber-400 mb-1';
-                subtitle.innerText = gameState.rules?.timeout_result === 'most_kills'
+                subtitle.innerText = gameState.rules?.timeout_result === 'draw'
+                    ? 'Tiempo agotado: varios jugadores sobrevivieron.'
+                    : gameState.rules?.timeout_result === 'most_kills'
                     ? 'Tiempo agotado: empate en la mayor cantidad de bajas.'
                     : 'Tiempo agotado: empate en la mayor cantidad de bombas colocadas.';
                 if (podium) podium.innerHTML = '';

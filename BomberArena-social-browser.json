@@ -1,0 +1,1649 @@
+{
+  "results": [
+    {
+      "id": "SOCIAL03",
+      "scenario": "name filters, availability filters, join via list, private visibility and last-slot race across HTTP workers",
+      "status": "passed",
+      "http_origins": [
+        "http://127.0.0.1:8002",
+        "http://127.0.0.1:8003"
+      ],
+      "last_place_statuses": [
+        422,
+        200
+      ]
+    },
+    {
+      "id": "SOCIAL04",
+      "scenario": "390px mobile viewport without horizontal overflow",
+      "status": "passed",
+      "metrics": {
+        "content": 390,
+        "viewport": 390
+      }
+    },
+    {
+      "id": "SOCIAL01",
+      "scenario": "public listing updates from real Reverb and character selection changes before start",
+      "status": "passed"
+    },
+    {
+      "id": "BROWSER01",
+      "status": "passed",
+      "scenario": "hold/release with local prediction",
+      "before": {
+        "x": 1,
+        "y": 1,
+        "authoritativeX": 1,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 2,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -23.842041015625,
+        "corrections": 0,
+        "fps": 0,
+        "tick": 79,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "httpRttMs": 293,
+        "events": 5,
+        "staleStates": 0,
+        "snapshotAgeMs": 221.40000000596046,
+        "visualResponseMs": null,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 0,
+          "simulation_ms": 0.0475
+        }
+      },
+      "immediate": {
+        "x": 1.206448,
+        "y": 1,
+        "authoritativeX": 1.2,
+        "authoritativeY": 1,
+        "dir": "right",
+        "seq": 4,
+        "ack": 4,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -5.467041015625,
+        "corrections": 0,
+        "fps": 0,
+        "tick": 85,
+        "simulationTick": 2,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 14,
+        "httpRttMs": 293,
+        "events": 6,
+        "staleStates": 0,
+        "snapshotAgeMs": 7.300000011920929,
+        "visualResponseMs": 7.5999999940395355,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 3.5762,
+          "simulation_ms": 0.0821
+        }
+      },
+      "released": {
+        "x": 2.5600957025942046,
+        "y": 1,
+        "authoritativeX": 2.4,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 8,
+        "ack": 6,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -3.85986328125,
+        "corrections": 0,
+        "fps": 59.03187721334922,
+        "tick": 92,
+        "simulationTick": 8,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 35.5,
+        "httpRttMs": 293,
+        "events": 9,
+        "staleStates": 0,
+        "snapshotAgeMs": 24.200000002980232,
+        "visualResponseMs": 7.5999999940395355,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 18.0774,
+          "simulation_ms": 0.0619
+        }
+      },
+      "afterRelease": {
+        "x": 2.5600957025942046,
+        "y": 1,
+        "authoritativeX": 2.4,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 8,
+        "ack": 6,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -3.85986328125,
+        "corrections": 0,
+        "fps": 59.03187721334922,
+        "tick": 92,
+        "simulationTick": 8,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 12.299999997019768,
+        "httpRttMs": 293,
+        "events": 9,
+        "staleStates": 0,
+        "snapshotAgeMs": 117.20000000298023,
+        "visualResponseMs": 7.5999999940395355,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 18.0774,
+          "simulation_ms": 0.0619
+        }
+      },
+      "settled": {
+        "x": 2.599993553354595,
+        "y": 1,
+        "authoritativeX": 2.6,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 8,
+        "ack": 8,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -2.60888671875,
+        "corrections": 0,
+        "fps": 59.988002399341354,
+        "tick": 94,
+        "simulationTick": 11,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 12.299999997019768,
+        "httpRttMs": 293,
+        "events": 10,
+        "staleStates": 0,
+        "snapshotAgeMs": 1008.2000000029802,
+        "visualResponseMs": 7.5999999940395355,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 2.7958,
+          "simulation_ms": 0.05
+        }
+      },
+      "rules": {
+        "collisions": false,
+        "speed": 4,
+        "simulation": 20,
+        "publish": 10
+      }
+    },
+    {
+      "id": "BROWSER02",
+      "scenario": "blur clears input",
+      "status": "passed"
+    },
+    {
+      "id": "BROWSER03",
+      "scenario": "four real browser contexts receive the same round",
+      "status": "passed",
+      "versions": [
+        13,
+        13,
+        13,
+        13
+      ]
+    },
+    {
+      "id": "BROWSER04",
+      "scenario": "real Canvas sample",
+      "metrics": {
+        "x": 2.599999999999742,
+        "y": 1,
+        "authoritativeX": 2.6,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 10,
+        "ack": 10,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -16.454833984375,
+        "corrections": 0,
+        "fps": 60.0511911795422,
+        "tick": 116,
+        "simulationTick": 32,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 3.7999999970197678,
+        "httpRttMs": 1013.6000000089407,
+        "events": 11,
+        "staleStates": 0,
+        "snapshotAgeMs": 1932.199999988079,
+        "visualResponseMs": 7.5999999940395355,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 0,
+          "simulation_ms": 0.0507
+        }
+      }
+    },
+    {
+      "id": "BROWSER05",
+      "scenario": "four players move concurrently with independent input",
+      "status": "passed",
+      "samples": [
+        {
+          "x": 9.999999618877707,
+          "y": 1,
+          "authoritativeX": 10,
+          "authoritativeY": 1,
+          "dir": null,
+          "seq": 7,
+          "ack": 7,
+          "pending": 0,
+          "tokenPresent": true,
+          "transportState": "connected",
+          "clockOffset": -38.58203125,
+          "corrections": 0,
+          "fps": 60.02755363099892,
+          "tick": 186,
+          "simulationTick": 95,
+          "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+          "alive": true,
+          "wsRttMs": 22.5,
+          "httpRttMs": 450.1000000089407,
+          "events": 11,
+          "staleStates": 0,
+          "snapshotAgeMs": 155.90000000596046,
+          "visualResponseMs": 10.5,
+          "server": {
+            "rejected_collisions": 0,
+            "rejected_moves": 0,
+            "previous_mutation_ms": 0,
+            "simulation_ms": 0.0496
+          }
+        },
+        {
+          "x": 10.199999543666017,
+          "y": 9,
+          "authoritativeX": 10.2,
+          "authoritativeY": 9,
+          "dir": null,
+          "seq": 7,
+          "ack": 7,
+          "pending": 0,
+          "tokenPresent": true,
+          "transportState": "connected",
+          "clockOffset": -15.9169921875,
+          "corrections": 0,
+          "fps": 60.02755363099892,
+          "tick": 174,
+          "simulationTick": 87,
+          "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+          "alive": true,
+          "wsRttMs": 19.399999991059303,
+          "httpRttMs": 808.5,
+          "events": 12,
+          "staleStates": 0,
+          "snapshotAgeMs": 783.4000000059605,
+          "visualResponseMs": 7.800000011920929,
+          "server": {
+            "rejected_collisions": 0,
+            "rejected_moves": 0,
+            "previous_mutation_ms": 0,
+            "simulation_ms": 0.0488
+          }
+        },
+        {
+          "x": 1.8000004589123355,
+          "y": 9,
+          "authoritativeX": 1.8,
+          "authoritativeY": 9,
+          "dir": null,
+          "seq": 7,
+          "ack": 7,
+          "pending": 0,
+          "tokenPresent": true,
+          "transportState": "connected",
+          "clockOffset": -16.10595703125,
+          "corrections": 0,
+          "fps": 59.99803285120605,
+          "tick": 180,
+          "simulationTick": 93,
+          "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+          "alive": true,
+          "wsRttMs": 15.299999997019768,
+          "httpRttMs": 1090.7999999970198,
+          "events": 10,
+          "staleStates": 0,
+          "snapshotAgeMs": 477.70000000298023,
+          "visualResponseMs": 5.5,
+          "server": {
+            "rejected_collisions": 0,
+            "rejected_moves": 0,
+            "previous_mutation_ms": 0,
+            "simulation_ms": 0.0553
+          }
+        },
+        {
+          "x": 1.7999995414463446,
+          "y": 1,
+          "authoritativeX": 1.8,
+          "authoritativeY": 1,
+          "dir": null,
+          "seq": 15,
+          "ack": 15,
+          "pending": 0,
+          "tokenPresent": true,
+          "transportState": "connected",
+          "clockOffset": -22.35400390625,
+          "corrections": 0,
+          "fps": 60,
+          "tick": 163,
+          "simulationTick": 75,
+          "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+          "alive": true,
+          "wsRttMs": 14.199999988079071,
+          "httpRttMs": 1293.800000011921,
+          "events": 14,
+          "staleStates": 0,
+          "snapshotAgeMs": 1345,
+          "visualResponseMs": 1.0999999940395355,
+          "server": {
+            "rejected_collisions": 0,
+            "rejected_moves": 0,
+            "previous_mutation_ms": 0,
+            "simulation_ms": 0.0466
+          }
+        }
+      ]
+    },
+    {
+      "id": "LATENCY30",
+      "scenario": "real Reverb transport with injected one-way input delay and 0-24ms jitter",
+      "status": "passed",
+      "before": {
+        "x": 1.7999995414463446,
+        "y": 1,
+        "authoritativeX": 1.8,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 15,
+        "ack": 15,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -22.35400390625,
+        "corrections": 0,
+        "fps": 60,
+        "tick": 163,
+        "simulationTick": 75,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 14.199999988079071,
+        "httpRttMs": 1293.800000011921,
+        "events": 14,
+        "staleStates": 0,
+        "snapshotAgeMs": 1347.8999999910593,
+        "visualResponseMs": 1.0999999940395355,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 0,
+          "simulation_ms": 0.0466
+        }
+      },
+      "stopped": {
+        "x": 2.8848539593701465,
+        "y": 1,
+        "authoritativeX": 2,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 20,
+        "ack": 17,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -5.2919921875,
+        "corrections": 0,
+        "fps": 59.97001499250375,
+        "tick": 192,
+        "simulationTick": 101,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 48.3999999910593,
+        "httpRttMs": 1293.800000011921,
+        "events": 15,
+        "staleStates": 0,
+        "snapshotAgeMs": 215.40000000596046,
+        "visualResponseMs": 4.899999991059303,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 3.072,
+          "simulation_ms": 0.1049
+        }
+      },
+      "final": {
+        "x": 2.2000952047634046,
+        "y": 1,
+        "authoritativeX": 2.2,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 20,
+        "ack": 20,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -28.498046875,
+        "corrections": 0,
+        "fps": 59.956752506037574,
+        "tick": 199,
+        "simulationTick": 105,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 64.40000000596046,
+        "httpRttMs": 1006.5,
+        "events": 16,
+        "staleStates": 0,
+        "snapshotAgeMs": 951.5999999940395,
+        "visualResponseMs": 4.899999991059303,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 0,
+          "simulation_ms": 0.0736
+        }
+      }
+    },
+    {
+      "id": "LATENCY100",
+      "scenario": "real Reverb transport with injected one-way input delay and 0-24ms jitter",
+      "status": "passed",
+      "before": {
+        "x": 0.800041577508946,
+        "y": 1,
+        "authoritativeX": 0.8,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 25,
+        "ack": 25,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -17.171142578125,
+        "corrections": 0,
+        "fps": 60.08668242693157,
+        "tick": 230,
+        "simulationTick": 135,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 8.599999994039536,
+        "httpRttMs": 1421.4000000059605,
+        "events": 20,
+        "staleStates": 0,
+        "snapshotAgeMs": 762.7999999970198,
+        "visualResponseMs": 2.2999999970197678,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 0,
+          "simulation_ms": 0.0711
+        }
+      },
+      "stopped": {
+        "x": 1.6938514938774845,
+        "y": 1,
+        "authoritativeX": 1.4,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 30,
+        "ack": 28,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -4.5361328125,
+        "corrections": 0,
+        "fps": 60.08668242693157,
+        "tick": 251,
+        "simulationTick": 156,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 109.19999998807907,
+        "httpRttMs": 1421.4000000059605,
+        "events": 22,
+        "staleStates": 0,
+        "snapshotAgeMs": 24.80000001192093,
+        "visualResponseMs": 10.699999988079071,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 4.8717,
+          "simulation_ms": 0.0661
+        }
+      },
+      "final": {
+        "x": 1.999576856060355,
+        "y": 1,
+        "authoritativeX": 2,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 30,
+        "ack": 30,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -5.07080078125,
+        "corrections": 0,
+        "fps": 60.306475531389026,
+        "tick": 260,
+        "simulationTick": 162,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 120.20000000298023,
+        "httpRttMs": 1421.4000000059605,
+        "events": 24,
+        "staleStates": 0,
+        "snapshotAgeMs": 762.6999999880791,
+        "visualResponseMs": 10.699999988079071,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 13.476,
+          "simulation_ms": 0.2665
+        }
+      }
+    },
+    {
+      "id": "LATENCY200",
+      "scenario": "real Reverb transport with injected one-way input delay and 0-24ms jitter",
+      "status": "passed",
+      "before": {
+        "x": 0.9999878515018634,
+        "y": 1,
+        "authoritativeX": 1,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 35,
+        "ack": 35,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -2.050048828125,
+        "corrections": 0,
+        "fps": 59.964021586511976,
+        "tick": 282,
+        "simulationTick": 181,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 13.800000011920929,
+        "httpRttMs": 1737.5,
+        "events": 28,
+        "staleStates": 0,
+        "snapshotAgeMs": 949.3999999910593,
+        "visualResponseMs": 9,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 3.0367,
+          "simulation_ms": 0.0533
+        }
+      },
+      "stopped": {
+        "x": 2.265198117117105,
+        "y": 1,
+        "authoritativeX": 1.2,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 40,
+        "ack": 37,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -4.85205078125,
+        "corrections": 0,
+        "fps": 59.964021586511976,
+        "tick": 306,
+        "simulationTick": 205,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 59.79999999701977,
+        "httpRttMs": 926,
+        "events": 29,
+        "staleStates": 0,
+        "snapshotAgeMs": 60.29999999701977,
+        "visualResponseMs": 6.799999997019768,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 3.3318,
+          "simulation_ms": 0.0622
+        }
+      },
+      "final": {
+        "x": 2.2000104065013613,
+        "y": 1,
+        "authoritativeX": 2.2,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 40,
+        "ack": 40,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -4.81005859375,
+        "corrections": 0,
+        "fps": 59.92808629626588,
+        "tick": 313,
+        "simulationTick": 211,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 69.6000000089407,
+        "httpRttMs": 926,
+        "events": 32,
+        "staleStates": 0,
+        "snapshotAgeMs": 1016.2000000029802,
+        "visualResponseMs": 6.799999997019768,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 4.5976,
+          "simulation_ms": 0.0428
+        }
+      }
+    },
+    {
+      "id": "LATENCY300",
+      "scenario": "real Reverb transport with injected one-way input delay and 0-24ms jitter",
+      "status": "passed",
+      "before": {
+        "x": 1.0000112860434598,
+        "y": 1,
+        "authoritativeX": 1,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 45,
+        "ack": 45,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -19.009033203125,
+        "corrections": 0,
+        "fps": 59.982005398559195,
+        "tick": 358,
+        "simulationTick": 256,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 15.700000002980232,
+        "httpRttMs": 533.6000000089407,
+        "events": 36,
+        "staleStates": 0,
+        "snapshotAgeMs": 83.09999999403954,
+        "visualResponseMs": 10.5,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 0,
+          "simulation_ms": 0.0465
+        }
+      },
+      "stopped": {
+        "x": 2.267202886210514,
+        "y": 1,
+        "authoritativeX": 1,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 50,
+        "ack": 45,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -19.009033203125,
+        "corrections": 0,
+        "fps": 59.982005398559195,
+        "tick": 358,
+        "simulationTick": 256,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 15.700000002980232,
+        "httpRttMs": 533.6000000089407,
+        "events": 36,
+        "staleStates": 0,
+        "snapshotAgeMs": 400.29999999701977,
+        "visualResponseMs": 11.700000002980232,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 0,
+          "simulation_ms": 0.0465
+        }
+      },
+      "final": {
+        "x": 2.000049864629897,
+        "y": 1,
+        "authoritativeX": 2,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 50,
+        "ack": 50,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -24.968017578125,
+        "corrections": 0,
+        "fps": 59.99400060029756,
+        "tick": 382,
+        "simulationTick": 280,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 21.299999997019768,
+        "httpRttMs": 650,
+        "events": 40,
+        "staleStates": 0,
+        "snapshotAgeMs": 566.2999999970198,
+        "visualResponseMs": 11.700000002980232,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 0,
+          "simulation_ms": 0.0521
+        }
+      }
+    },
+    {
+      "id": "RECONNECT_DIAGNOSTIC",
+      "sample": {
+        "x": 2.6,
+        "y": 1,
+        "authoritativeX": 2.6,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 60,
+        "ack": 60,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -21.619140625,
+        "corrections": 0,
+        "fps": 60.08668242693157,
+        "tick": 462,
+        "simulationTick": 353,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 6.799999997019768,
+        "httpRttMs": 1104.2000000029802,
+        "events": 46,
+        "staleStates": 0,
+        "snapshotAgeMs": 70.5,
+        "visualResponseMs": 13,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 4.732,
+          "simulation_ms": 0.0442
+        }
+      },
+      "controller": {
+        "ack": 60,
+        "correction": {
+          "x": 0,
+          "y": 0
+        },
+        "connected": true,
+        "inputs": {
+          "p_LcoyP7tamkLHnH1HDm77FM66": {
+            "direction": null,
+            "sequence": 60,
+            "received_at": 1792071297.175823,
+            "expires_at": 1792071297.175823
+          },
+          "p_Om3Fzrb0fGp9qre8rHJJghlA": {
+            "direction": null,
+            "sequence": 7,
+            "received_at": 1792071283.452444,
+            "expires_at": 1792071283.452444
+          },
+          "p_SaHWsDPQuQSPK3B2MH0qCueZ": {
+            "direction": null,
+            "sequence": 7,
+            "received_at": 1792071283.454312,
+            "expires_at": 1792071283.454312
+          },
+          "p_aRyZXnOxNxDGfLGw35KpwZMR": {
+            "direction": null,
+            "sequence": 7,
+            "received_at": 1792071283.447479,
+            "expires_at": 1792071283.447479
+          }
+        },
+        "lastPublished": 120,
+        "version": 120
+      }
+    },
+    {
+      "id": "BROWSER06",
+      "scenario": "disconnect clears held input and reconnect has no replay",
+      "status": "passed",
+      "sample": {
+        "x": 2.6,
+        "y": 1,
+        "authoritativeX": 2.6,
+        "authoritativeY": 1,
+        "dir": null,
+        "seq": 60,
+        "ack": 60,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -21.619140625,
+        "corrections": 0,
+        "fps": 60.08668242693157,
+        "tick": 462,
+        "simulationTick": 353,
+        "round": "f60a474b1bb4f5ce7dba5fb199e1528e",
+        "alive": true,
+        "wsRttMs": 6.799999997019768,
+        "httpRttMs": 1104.2000000029802,
+        "events": 46,
+        "staleStates": 0,
+        "snapshotAgeMs": 72.40000000596046,
+        "visualResponseMs": 13,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 4.732,
+          "simulation_ms": 0.0442
+        }
+      }
+    },
+    {
+      "id": "SOCIAL02",
+      "scenario": "winner rejected; two concurrent losers create one request; rejection prevents restart; unanimous approval starts once",
+      "status": "passed"
+    },
+    {
+      "id": "BROWSER07",
+      "scenario": "server bombs and voted rematch restore working input and preserve characters",
+      "status": "passed",
+      "sample": {
+        "x": 1,
+        "y": 1.7993636523150658,
+        "authoritativeX": 1,
+        "authoritativeY": 1.8,
+        "dir": null,
+        "seq": 71,
+        "ack": 71,
+        "pending": 0,
+        "tokenPresent": true,
+        "transportState": "connected",
+        "clockOffset": -22.94580078125,
+        "corrections": 0,
+        "fps": 61.38006137951809,
+        "tick": 72,
+        "simulationTick": 8,
+        "round": "c10dbb5bfe1da3e064f1f292157d87a1",
+        "alive": true,
+        "wsRttMs": 22.099999994039536,
+        "httpRttMs": 322.8999999910593,
+        "events": 65,
+        "staleStates": 0,
+        "snapshotAgeMs": 503.6000000089407,
+        "visualResponseMs": 4.4000000059604645,
+        "server": {
+          "rejected_collisions": 0,
+          "rejected_moves": 0,
+          "previous_mutation_ms": 0,
+          "simulation_ms": 0.0947
+        }
+      }
+    },
+    {
+      "id": "BROWSER08",
+      "scenario": "opposite keys, restoration of held direction and pointer cancellation use current input",
+      "status": "passed"
+    },
+    {
+      "id": "BROWSER09",
+      "scenario": "measured active movement window after rematch",
+      "status": "passed",
+      "duration_seconds": 2.5334000000059604,
+      "received_game_events_per_second": 6.315623273056902,
+      "hard_corrections_per_minute": 0,
+      "samples": [
+        {
+          "errorCells": 0.13358201950773907,
+          "snapshotAgeMs": 542.9000000059605,
+          "simulationMs": 0.0947,
+          "fps": 61.38006137951809,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.181656039034215,
+          "snapshotAgeMs": 10.199999988079071,
+          "simulationMs": 0.0517,
+          "fps": 61.38006137951809,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.2843961742296146,
+          "snapshotAgeMs": 37.69999998807907,
+          "simulationMs": 0.0517,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.3437821876456739,
+          "snapshotAgeMs": 63.19999998807907,
+          "simulationMs": 0.0517,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.4572890918895769,
+          "snapshotAgeMs": 87.79999999701977,
+          "simulationMs": 0.0517,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.5137035442866076,
+          "snapshotAgeMs": 114.8999999910593,
+          "simulationMs": 0.0517,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.07893780808684303,
+          "snapshotAgeMs": 23.30000001192093,
+          "simulationMs": 0.065,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.22081623559535357,
+          "snapshotAgeMs": 56.1000000089407,
+          "simulationMs": 0.065,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.2905704769166033,
+          "snapshotAgeMs": 71,
+          "simulationMs": 0.065,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.36301189802111633,
+          "snapshotAgeMs": 102.70000000298023,
+          "simulationMs": 0.065,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.5078650500504143,
+          "snapshotAgeMs": 121.70000000298023,
+          "simulationMs": 0.065,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.024214264513390038,
+          "snapshotAgeMs": 1.800000011920929,
+          "simulationMs": 0.2163,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.11792543241487063,
+          "snapshotAgeMs": 28.700000002980232,
+          "simulationMs": 0.2163,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.1838241517341519,
+          "snapshotAgeMs": 53.20000000298023,
+          "simulationMs": 0.2163,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.21145638654294618,
+          "snapshotAgeMs": 78.80000001192093,
+          "simulationMs": 0.2163,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.21311890520031707,
+          "snapshotAgeMs": 110,
+          "simulationMs": 0.2163,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.2155060917178293,
+          "snapshotAgeMs": 128.80000001192093,
+          "simulationMs": 0.2163,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.21658307729060855,
+          "snapshotAgeMs": 156.6000000089407,
+          "simulationMs": 0.2163,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.21824229301453846,
+          "snapshotAgeMs": 179.80000001192093,
+          "simulationMs": 0.2163,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.21886463301543513,
+          "snapshotAgeMs": 204.80000001192093,
+          "simulationMs": 0.2163,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.2199577159513484,
+          "snapshotAgeMs": 231.5,
+          "simulationMs": 0.2163,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.2199580000000001,
+          "snapshotAgeMs": 262.70000000298023,
+          "simulationMs": 0.2163,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.2199580000000001,
+          "snapshotAgeMs": 280.20000000298023,
+          "simulationMs": 0.2163,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.2199580000000001,
+          "snapshotAgeMs": 301.40000000596046,
+          "simulationMs": 0.2163,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.016589089600951734,
+          "snapshotAgeMs": 28.100000008940697,
+          "simulationMs": 0.0731,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.012460508782176749,
+          "snapshotAgeMs": 53.1000000089407,
+          "simulationMs": 0.0731,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.009061867251805023,
+          "snapshotAgeMs": 89.6000000089407,
+          "simulationMs": 0.0731,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.00770645939261172,
+          "snapshotAgeMs": 107.70000000298023,
+          "simulationMs": 0.0731,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.006583939513170378,
+          "snapshotAgeMs": 13.700000002980232,
+          "simulationMs": 0.0571,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.005047718344149743,
+          "snapshotAgeMs": 43.099999994039536,
+          "simulationMs": 0.0571,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.004413997332409547,
+          "snapshotAgeMs": 60.79999999701977,
+          "simulationMs": 0.0571,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.003623048962976494,
+          "snapshotAgeMs": 92.59999999403954,
+          "simulationMs": 0.0571,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0031389888118722453,
+          "snapshotAgeMs": 110.90000000596046,
+          "simulationMs": 0.0571,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0022332273165117655,
+          "snapshotAgeMs": 6.9000000059604645,
+          "simulationMs": 0.0458,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0016521446237733883,
+          "snapshotAgeMs": 39.5,
+          "simulationMs": 0.0458,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.001428606797906351,
+          "snapshotAgeMs": 58.5,
+          "simulationMs": 0.0458,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.001211803645888132,
+          "snapshotAgeMs": 77.6000000089407,
+          "simulationMs": 0.0458,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.018946973296864567,
+          "snapshotAgeMs": 107.29999999701977,
+          "simulationMs": 0.0458,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.018806111129596292,
+          "snapshotAgeMs": 134.20000000298023,
+          "simulationMs": 0.0458,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.013637998837185972,
+          "snapshotAgeMs": 24,
+          "simulationMs": 0.0855,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0533404374735591,
+          "snapshotAgeMs": 43.400000005960464,
+          "simulationMs": 0.0855,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.15530248943231584,
+          "snapshotAgeMs": 68,
+          "simulationMs": 0.0855,
+          "fps": 60.58800158937283,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.22622403770187827,
+          "snapshotAgeMs": 98.09999999403954,
+          "simulationMs": 0.0855,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.17161366158008295,
+          "snapshotAgeMs": 21.900000005960464,
+          "simulationMs": 0.0751,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.2451392019670462,
+          "snapshotAgeMs": 43.79999999701977,
+          "simulationMs": 0.0751,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.33652965539633595,
+          "snapshotAgeMs": 75.40000000596046,
+          "simulationMs": 0.0751,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.454206116683062,
+          "snapshotAgeMs": 97.5,
+          "simulationMs": 0.0751,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.4867548751380375,
+          "snapshotAgeMs": 120.79999999701977,
+          "simulationMs": 0.0751,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0010638912715696947,
+          "snapshotAgeMs": 25.700000002980232,
+          "simulationMs": 0.1044,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.1649673094534272,
+          "snapshotAgeMs": 55.1000000089407,
+          "simulationMs": 0.1044,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.3073051905463826,
+          "snapshotAgeMs": 73.80000001192093,
+          "simulationMs": 0.1044,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.40892554676516046,
+          "snapshotAgeMs": 105.30000001192093,
+          "simulationMs": 0.1044,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.1032122950210892,
+          "snapshotAgeMs": 10.200000002980232,
+          "simulationMs": 0.0642,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.24014080139725724,
+          "snapshotAgeMs": 41.29999999701977,
+          "simulationMs": 0.0642,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.309789066481591,
+          "snapshotAgeMs": 61.400000005960464,
+          "simulationMs": 0.0642,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.4406569925418009,
+          "snapshotAgeMs": 91.70000000298023,
+          "simulationMs": 0.0642,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.5594790938072813,
+          "snapshotAgeMs": 123.29999999701977,
+          "simulationMs": 0.0642,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.5594790938072813,
+          "snapshotAgeMs": 137.6000000089407,
+          "simulationMs": 0.0642,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.313471223719485,
+          "snapshotAgeMs": 38.3999999910593,
+          "simulationMs": 0.483,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.3575569018493505,
+          "snapshotAgeMs": 50.3999999910593,
+          "simulationMs": 0.483,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.45836362771777583,
+          "snapshotAgeMs": 84.59999999403954,
+          "simulationMs": 0.483,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.11807323752977372,
+          "snapshotAgeMs": 5.5,
+          "simulationMs": 0.0464,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.18316452911456138,
+          "snapshotAgeMs": 28.30000001192093,
+          "simulationMs": 0.0464,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.3133721541935678,
+          "snapshotAgeMs": 56.30000001192093,
+          "simulationMs": 0.0464,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.4019882480774718,
+          "snapshotAgeMs": 81.1000000089407,
+          "simulationMs": 0.0464,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.3986615275879286,
+          "snapshotAgeMs": 104,
+          "simulationMs": 0.0464,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.41614837579822517,
+          "snapshotAgeMs": 132.1000000089407,
+          "simulationMs": 0.0464,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.4138837781864497,
+          "snapshotAgeMs": 153.30000001192093,
+          "simulationMs": 0.0464,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.012006913188529977,
+          "snapshotAgeMs": 23,
+          "simulationMs": 0.048,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.009077842479066733,
+          "snapshotAgeMs": 54.20000000298023,
+          "simulationMs": 0.048,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.006788783010643673,
+          "snapshotAgeMs": 75.59999999403954,
+          "simulationMs": 0.048,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.005865704581981768,
+          "snapshotAgeMs": 100.79999999701977,
+          "simulationMs": 0.048,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.004414820667791086,
+          "snapshotAgeMs": 20.100000008940697,
+          "simulationMs": 0.0939,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.003314550056798149,
+          "snapshotAgeMs": 23.400000005960464,
+          "simulationMs": 0.0553,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0028589997762663577,
+          "snapshotAgeMs": 40.20000000298023,
+          "simulationMs": 0.0553,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.002158056832402888,
+          "snapshotAgeMs": 73,
+          "simulationMs": 0.0553,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0018870564967863324,
+          "snapshotAgeMs": 89.20000000298023,
+          "simulationMs": 0.0553,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0016229250009379692,
+          "snapshotAgeMs": 120.20000000298023,
+          "simulationMs": 0.0553,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0012091454547316083,
+          "snapshotAgeMs": 140.20000000298023,
+          "simulationMs": 0.0553,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0010542858048315784,
+          "snapshotAgeMs": 167.29999999701977,
+          "simulationMs": 0.0553,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0009216187988789759,
+          "snapshotAgeMs": 13.5,
+          "simulationMs": 0.2136,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0009216187988789759,
+          "snapshotAgeMs": 37.6000000089407,
+          "simulationMs": 0.2136,
+          "fps": 57.74016923842708,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0009216187988789759,
+          "snapshotAgeMs": 63.5,
+          "simulationMs": 0.2136,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0009216187988789759,
+          "snapshotAgeMs": 96.1000000089407,
+          "simulationMs": 0.2136,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0009216187988789759,
+          "snapshotAgeMs": 113.5,
+          "simulationMs": 0.2136,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0009216187988789759,
+          "snapshotAgeMs": 135.6000000089407,
+          "simulationMs": 0.2136,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0006867089316281438,
+          "snapshotAgeMs": 29.700000002980232,
+          "simulationMs": 0.0455,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0005927671497323317,
+          "snapshotAgeMs": 55.79999999701977,
+          "simulationMs": 0.0455,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0004503163833010637,
+          "snapshotAgeMs": 77.5,
+          "simulationMs": 0.0455,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.00039195538001457475,
+          "snapshotAgeMs": 101.3999999910593,
+          "simulationMs": 0.0455,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.000293533314584038,
+          "snapshotAgeMs": 127.5,
+          "simulationMs": 0.0455,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.00021932395969603835,
+          "snapshotAgeMs": 162.5,
+          "simulationMs": 0.0455,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.00019195232953650443,
+          "snapshotAgeMs": 176.79999999701977,
+          "simulationMs": 0.0455,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.00014368476455672852,
+          "snapshotAgeMs": 210.8999999910593,
+          "simulationMs": 0.0455,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.00014368476455672852,
+          "snapshotAgeMs": 224.8999999910593,
+          "simulationMs": 0.0455,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0001060693346294217,
+          "snapshotAgeMs": 258.5,
+          "simulationMs": 0.0455,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.00008072660429381262,
+          "snapshotAgeMs": 277.79999999701977,
+          "simulationMs": 0.0455,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.00006974778610990828,
+          "snapshotAgeMs": 304.29999999701977,
+          "simulationMs": 0.0455,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.0000523561031101627,
+          "snapshotAgeMs": 329.29999999701977,
+          "simulationMs": 0.0455,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.00004552886726594263,
+          "snapshotAgeMs": 351.09999999403954,
+          "simulationMs": 0.0455,
+          "fps": 56.351952545724174,
+          "pending": 0
+        },
+        {
+          "errorCells": 0.00003392409077629388,
+          "snapshotAgeMs": 380.8999999910593,
+          "simulationMs": 0.0455,
+          "fps": 56.351952545724174,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "id": "BROWSER_METRICS",
+      "duration_ms": 66649.8814,
+      "browser_cpu_seconds_during_latency_tests": 50.66580299999999,
+      "metrics": {
+        "Frames": 2,
+        "TaskDuration": 0.000017,
+        "JSHeapUsedSize": 2400108,
+        "JSHeapTotalSize": 3932160
+      }
+    }
+  ],
+  "errors": []
+}

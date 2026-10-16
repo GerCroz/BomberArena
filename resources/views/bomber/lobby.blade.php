@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Bomber Arena — Multijugador Cyberpunk en Tiempo Real</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -159,6 +160,10 @@
                     <input type="text" id="nickname" value="{{ $nickname }}" maxlength="18"
                         class="input-cyber px-4 py-2.5 sm:py-3 rounded-xl text-base sm:text-lg font-bold tracking-wide"
                         placeholder="Ej: CyberZero">
+                    <div class="flex items-center justify-between gap-2 mt-2 text-xs text-slate-400">
+                        <span>Personaje: <strong id="selected-character-name" class="text-cyan-300">Cyber Blue</strong></span>
+                        <button type="button" onclick="document.getElementById('character-roster-preview').scrollIntoView({block:'center'})" class="text-cyan-300 underline cursor-pointer">Cambiar personaje</button>
+                    </div>
                 </div>
 
                 <!-- Create Room Section -->
@@ -173,7 +178,18 @@
                     <p class="text-xs sm:text-sm text-slate-400 mb-4 leading-relaxed">
                         Conviértete en anfitrión, genera una sala con temporizador real e invita a tus rivales.
                     </p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                        <label class="text-xs text-slate-300 sm:col-span-2">Nombre de sala<input id="room-name" maxlength="60" placeholder="Arena Alpha" class="input-cyber rounded-xl px-3 py-2 mt-1"></label>
+                        <label class="text-xs text-slate-300">Visibilidad<select id="room-privacy" class="input-cyber rounded-xl px-3 py-2 mt-1">
+                            @if($lobbyRules['public_rooms_enabled'])<option value="public">Pública</option>@endif
+                            @if($lobbyRules['private_rooms_enabled'])<option value="private">Privada · código</option>@endif
+                        </select></label>
+                        <label class="text-xs text-slate-300">Capacidad<select id="room-capacity" class="input-cyber rounded-xl px-3 py-2 mt-1">
+                            @for($capacity = $lobbyRules['min_players']; $capacity <= $lobbyRules['max_players']; $capacity++)<option value="{{ $capacity }}" {{ $capacity === $lobbyRules['max_players'] ? 'selected' : '' }}>{{ $capacity }} jugadores</option>@endfor
+                        </select></label>
+                    </div>
                     <button type="button" id="btn-create-room" onclick="createRoom()"
+                        data-create-room
                         class="btn-arcade btn-cyan w-full py-3 sm:py-3.5 rounded-xl text-sm sm:text-base tracking-wider uppercase cursor-pointer">
                         <i data-lucide="play" class="w-4 h-4"></i>
                         <span>CREAR SALA AHORA</span>
@@ -219,7 +235,7 @@
                 <div class="grid grid-cols-2 gap-2.5 mb-3" id="character-roster-preview">
                     <!-- Loaded dynamically via BomberEngine -->
                 </div>
-                <p class="text-[11px] text-slate-400 text-center">El servidor asigna un combatiente único por orden de ingreso.</p>
+                <p class="text-[11px] text-slate-400 text-center">Elige tu apariencia antes de ingresar. Todos los personajes tienen las mismas capacidades.</p>
             </div>
 
             <!-- Controls & Power-ups Card -->
@@ -267,11 +283,23 @@
 
     </div>
 
+    <section class="cyber-panel w-full max-w-4xl p-5 sm:p-7 mt-6" aria-labelledby="public-rooms-heading">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div><h2 id="public-rooms-heading" class="arcade-font font-bold text-white">Salas disponibles</h2><p id="rooms-update-status" class="text-xs text-slate-400 mt-1" aria-live="polite">Actualizando salas…</p></div>
+            <div class="flex flex-col sm:flex-row gap-2">
+                <input id="room-search" type="search" maxlength="60" placeholder="Nombre o código" aria-label="Buscar sala" class="input-cyber px-3 py-2 rounded-xl text-sm">
+                <label class="flex items-center gap-2 text-xs text-slate-300 shrink-0"><input type="checkbox" id="available-only">Solo disponibles</label>
+            </div>
+        </div>
+        <div id="public-rooms-list" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+    </section>
+
     <!-- Scripts -->
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             // Render Character Roster Showcase using BomberEngine vector SVGs
             renderRosterPreview();
+            window.BomberLobby?.mount({ join: code => { document.getElementById('join-code').value=code; joinRoom(); } });
 
             // Setup Lucide icons
             if (window.lucide && window.lucide.createIcons) {
@@ -306,24 +334,32 @@
             const container = document.getElementById('character-roster-preview');
             if (!container || !window.BomberEngine) return;
 
-            const characters = [
-                { id: 'neon-blue', name: 'Cyber Blue', tag: 'Ágil' },
-                { id: 'neon-pink', name: 'Neon Red', tag: 'Ataque' },
-                { id: 'neon-green', name: 'Toxic Green', tag: 'Bio' },
-                { id: 'neon-yellow', name: 'Plasma Yellow', tag: 'Plasma' },
-            ];
+            const characters = @json($characters);
+            const enabled = @json($lobbyRules['character_selection_enabled']);
+            try { selectedCharacter = localStorage.getItem('bomber_character') || selectedCharacter; } catch {}
+            if (!characters[selectedCharacter] || !enabled) selectedCharacter = 'neon-blue';
+            container.innerHTML = Object.entries(characters).map(([id,c]) => `
+                <button type="button" data-character="${id}" data-character-name="${c.name}" onclick="selectLobbyCharacter('${id}')" aria-pressed="${id===selectedCharacter}" ${!enabled?'disabled':''}
+                    class="p-3 rounded-xl bg-slate-900/80 border flex flex-col items-center gap-2 text-center focus-visible:outline-2 focus-visible:outline-cyan-300 cursor-pointer">
+                    <span class="character-preview motion-safe:animate-pulse" style="color:${c.color}">${window.BomberEngine.getCharacterSVG(id,54)}</span>
+                    <span class="text-xs font-bold text-white">${c.name}</span>
+                    <span class="text-[10px] text-slate-400">${c.label} · mismas capacidades</span>
+                    <span data-selection-label class="text-[10px] font-bold text-cyan-300"></span>
+                </button>`).join('');
+            selectLobbyCharacter(selectedCharacter);
+        }
 
-            container.innerHTML = characters.map(c => `
-                <div class="p-2 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center gap-2">
-                    <div class="w-10 h-10 shrink-0 flex items-center justify-center">
-                        ${window.BomberEngine.getCharacterSVG(c.id, 40)}
-                    </div>
-                    <div class="min-w-0">
-                        <div class="text-[11px] font-bold text-white truncate">${c.name}</div>
-                        <div class="text-[9px] font-mono text-cyan-400 uppercase">${c.tag}</div>
-                    </div>
-                </div>
-            `).join('');
+        let selectedCharacter = 'neon-blue';
+        function selectLobbyCharacter(id) {
+            selectedCharacter = id;
+            document.getElementById('selected-character-name').textContent=document.querySelector('[data-character="'+id+'"]')?.dataset.characterName || 'Cyber Blue';
+            try { localStorage.setItem('bomber_character',id); } catch {}
+            document.querySelectorAll('[data-character]').forEach(button=>{
+                const active=button.dataset.character===id;
+                button.setAttribute('aria-pressed',String(active));
+                button.style.borderColor=active?'#38bdf8':'#233052';
+                button.querySelector('[data-selection-label]').textContent=active?'✓ SELECCIONADO':'SELECCIONAR';
+            });
         }
 
         function showError(msg) {
@@ -346,14 +382,14 @@
                         'Content-Type': 'application/json',
                         'X-CSRF-TOKEN': '{{ csrf_token() }}'
                     },
-                    body: JSON.stringify({ nickname })
+                    body: JSON.stringify({ nickname, character_id:selectedCharacter, name:document.getElementById('room-name').value.trim(), is_private:document.getElementById('room-privacy').value==='private', max_players:Number(document.getElementById('room-capacity').value) })
                 });
 
                 const data = await response.json();
                 if (data.success && data.redirect) {
                     window.location.href = data.redirect;
                 } else {
-                    showError(data.error || 'No se pudo crear la sala');
+                    showError(data.error || Object.values(data.errors || {}).flat()[0] || 'No se pudo crear la sala');
                     btn.disabled = false;
                     btn.innerHTML = '<i data-lucide="play" class="w-4 h-4"></i><span>CREAR SALA AHORA</span>';
                     if (window.lucide) window.lucide.createIcons();
@@ -387,7 +423,7 @@
                         'Content-Type': 'application/json',
                         'X-CSRF-TOKEN': '{{ csrf_token() }}'
                     },
-                    body: JSON.stringify({ code, nickname })
+                    body: JSON.stringify({ code, nickname, character_id:selectedCharacter })
                 });
 
                 const data = await response.json();

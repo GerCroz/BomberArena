@@ -144,6 +144,17 @@ class AdminRulesController extends Controller
             'local_prediction' => ['nullable', 'boolean'],
             'remote_interpolation' => ['nullable', 'boolean'],
             'visual_correction_limit' => ['nullable', 'numeric', 'min:0.25', 'max:1'],
+            'character_selection_enabled' => ['sometimes', 'boolean'],
+            'duplicate_characters_allowed' => ['sometimes', 'boolean'],
+            'character_changes_enabled' => ['sometimes', 'boolean'],
+            'rematch_losers_only' => ['sometimes', 'boolean'],
+            'rematch_on_draw' => ['sometimes', 'boolean'],
+            'rematch_response_seconds' => ['sometimes', 'integer', 'min:10', 'max:120'],
+            'max_consecutive_rematches' => ['sometimes', 'integer', 'min:0', 'max:20'],
+            'public_rooms_enabled' => ['sometimes', 'boolean'],
+            'private_rooms_enabled' => ['sometimes', 'boolean'],
+            'show_playing_rooms' => ['sometimes', 'boolean'],
+            'room_idle_seconds' => ['sometimes', 'integer', 'min:60', 'max:3600'],
         ]);
 
         $settings = [
@@ -179,7 +190,7 @@ class AdminRulesController extends Controller
             'random_map_generation' => $request->boolean('random_map_generation'),
         ];
 
-        foreach (['movement_speed', 'simulation_hz', 'publish_hz', 'corner_assist', 'local_prediction', 'remote_interpolation', 'visual_correction_limit'] as $key) {
+        foreach (['movement_speed', 'simulation_hz', 'publish_hz', 'corner_assist', 'local_prediction', 'remote_interpolation', 'visual_correction_limit', 'character_selection_enabled', 'duplicate_characters_allowed', 'character_changes_enabled', 'rematch_losers_only', 'rematch_on_draw', 'rematch_response_seconds', 'max_consecutive_rematches', 'public_rooms_enabled', 'private_rooms_enabled', 'show_playing_rooms', 'room_idle_seconds'] as $key) {
             if (array_key_exists($key, $validated)) {
                 $settings[$key] = $validated[$key];
             }

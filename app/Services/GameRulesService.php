@@ -132,6 +132,18 @@ class GameRulesService
         $merged['remote_interpolation'] = (bool) ($merged['remote_interpolation'] ?? true);
         $merged['visual_correction_limit'] = max(0.25, min(1, (float) ($merged['visual_correction_limit'] ?? 0.75)));
 
+        $merged['character_selection_enabled'] = (bool) ($merged['character_selection_enabled'] ?? true);
+        $merged['duplicate_characters_allowed'] = (bool) ($merged['duplicate_characters_allowed'] ?? true);
+        $merged['character_changes_enabled'] = (bool) ($merged['character_changes_enabled'] ?? true);
+        $merged['rematch_losers_only'] = (bool) ($merged['rematch_losers_only'] ?? true);
+        $merged['rematch_on_draw'] = (bool) ($merged['rematch_on_draw'] ?? true);
+        $merged['public_rooms_enabled'] = (bool) ($merged['public_rooms_enabled'] ?? true);
+        $merged['private_rooms_enabled'] = (bool) ($merged['private_rooms_enabled'] ?? true);
+        $merged['show_playing_rooms'] = (bool) ($merged['show_playing_rooms'] ?? true);
+        $merged['rematch_response_seconds'] = max(10, min(120, (int) ($merged['rematch_response_seconds'] ?? 30)));
+        $merged['max_consecutive_rematches'] = max(0, min(20, (int) ($merged['max_consecutive_rematches'] ?? 0)));
+        $merged['room_idle_seconds'] = max(60, min(3600, (int) ($merged['room_idle_seconds'] ?? 300)));
+
         return $merged;
     }
 }

@@ -42,6 +42,17 @@ class GameRule extends Model
             'draw_on_simultaneous_elimination' => true,
             'timeout_result' => 'draw',
             'allow_rematch' => true,
+            'character_selection_enabled' => true,
+            'duplicate_characters_allowed' => true,
+            'character_changes_enabled' => true,
+            'rematch_losers_only' => true,
+            'rematch_on_draw' => true,
+            'rematch_response_seconds' => 30,
+            'max_consecutive_rematches' => 0,
+            'public_rooms_enabled' => true,
+            'private_rooms_enabled' => true,
+            'show_playing_rooms' => true,
+            'room_idle_seconds' => 300,
 
             // B. Bombas y explosiones
             'bomb_fuse_ms' => 2000,

@@ -4,11 +4,15 @@ namespace App\Http\Controllers;
 
 use App\Models\Room;
 use App\Services\ArenaInputService;
+use App\Services\CharacterCatalog;
+use App\Services\GameRulesService;
 use App\Services\PlayerIdentityService;
 use App\Services\RoomService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class BomberGameController extends Controller
 {
@@ -27,11 +31,14 @@ class BomberGameController extends Controller
      */
     public function lobby(Request $request)
     {
-        $playerId = $this->identity->getOrCreatePlayerId($request);
+        $playerId = $this->browserPlayerId($request);
         $nickname = $this->identity->getNickname($request);
 
+        $characters = CharacterCatalog::CHARACTERS;
+        $lobbyRules = app(GameRulesService::class)->getActiveRules();
+
         return response()
-            ->view('bomber.lobby', compact('playerId', 'nickname'))
+            ->view('bomber.lobby', compact('playerId', 'nickname', 'characters', 'lobbyRules'))
             ->cookie(PlayerIdentityService::COOKIE_NAME, $playerId, 60 * 24 * 7)
             ->cookie(PlayerIdentityService::NICKNAME_COOKIE, $nickname, 60 * 24 * 7);
     }
@@ -43,7 +50,7 @@ class BomberGameController extends Controller
     {
         $room = Room::with('players')->where('code', strtoupper($code))->firstOrFail();
         $room->game_state = Cache::get("arena_state_{$room->code}") ?? $room->game_state;
-        $playerId = $this->identity->getOrCreatePlayerId($request);
+        $playerId = $this->browserPlayerId($request);
         $nickname = $this->identity->getNickname($request);
         $ownsIdentity = $request->cookie(PlayerIdentityService::COOKIE_NAME) === $playerId;
         $inputToken = $ownsIdentity && $room->players->contains('player_id', $playerId) ? ArenaInputService::token($room->code, $playerId) : null;
@@ -59,10 +66,16 @@ class BomberGameController extends Controller
      */
     public function createRoom(Request $request): JsonResponse
     {
-        $playerId = $this->identity->getOrCreatePlayerId($request);
+        $options = $request->validate([
+            'name' => ['nullable', 'string', 'max:60'],
+            'is_private' => ['nullable', 'boolean'],
+            'max_players' => ['nullable', 'integer', 'between:2,4'],
+            'character_id' => ['nullable', Rule::in(CharacterCatalog::ids())],
+        ]);
+        $playerId = $this->browserPlayerId($request);
         $nickname = $this->identity->getNickname($request, 'Comandante');
 
-        $room = $this->roomService->createRoom($playerId, $nickname);
+        $room = $this->roomService->createRoom($playerId, $nickname, $options);
 
         return response()->json([
             'success' => true,
@@ -80,12 +93,13 @@ class BomberGameController extends Controller
     {
         $request->validate([
             'code' => ['required', 'string', 'min:4', 'max:8'],
+            'character_id' => ['nullable', Rule::in(CharacterCatalog::ids())],
         ]);
 
-        $playerId = $this->identity->getOrCreatePlayerId($request);
+        $playerId = $this->browserPlayerId($request);
         $nickname = $this->identity->getNickname($request, 'Piloto_'.rand(100, 999));
 
-        $result = $this->roomService->joinRoom($request->code, $playerId, $nickname);
+        $result = $this->roomService->joinRoom($request->code, $playerId, $nickname, $request->input('character_id'));
 
         if (! $result['success']) {
             return response()->json($result, 422);
@@ -228,15 +242,13 @@ class BomberGameController extends Controller
         return response()->json($result, $result['success'] ? 200 : 422);
     }
 
-    /**
-     * API: Request Rematch.
-     */
-    public function rematch(Request $request, string $code): JsonResponse
+    private function browserPlayerId(Request $request): string
     {
-        $validated = $request->validate(['round_id' => ['nullable', 'string', 'max:64']]);
-        $playerId = $this->identity->getOrCreatePlayerId($request);
-        $result = $this->roomService->requestRematch($code, $playerId, $validated['round_id'] ?? null);
+        $player = $request->cookie(PlayerIdentityService::COOKIE_NAME);
+        if (is_string($player) && preg_match('/^[a-zA-Z0-9_-]{8,64}$/', $player)) {
+            return $player;
+        }
 
-        return response()->json($result, $result['success'] ? 200 : 422);
+        return 'p_'.Str::random(24);
     }
 }

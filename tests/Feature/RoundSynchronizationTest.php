@@ -4,11 +4,13 @@ namespace Tests\Feature;
 
 use App\Events\GameRoomEvent;
 use App\Models\Room;
+use App\Services\PlayerIdentityService;
 use App\Services\RoomService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\TestWith;
 use RuntimeException;
 use Tests\TestCase;
@@ -25,9 +27,7 @@ class RoundSynchronizationTest extends TestCase
         app(RoomService::class)->tickRoom($room->code);
         Event::fake([GameRoomEvent::class]);
 
-        $response = $this->withHeader('X-Player-ID', 'host_player')->postJson("/api/rooms/{$room->code}/rematch", [
-            'round_id' => $state['round_id'],
-        ]);
+        $response = $this->approvedRematch($room, 'host_player', $state['round_id']);
 
         $response->assertOk()->assertJsonPath('success', true)
             ->assertJsonPath('state.version', 1)
@@ -40,7 +40,7 @@ class RoundSynchronizationTest extends TestCase
         $this->assertDatabaseHas('rooms', ['id' => $room->id, 'status' => Room::STATE_PLAYING, 'winner_player_id' => null, 'finish_reason' => null, 'total_eliminations' => 0]);
         Event::assertDispatched(GameRoomEvent::class, fn (GameRoomEvent $event): bool => $event->type === 'game_started' && $event->data['round_id'] === $newRoundId);
 
-        $this->postJson("/api/rooms/{$room->code}/actions", ['round_id' => $newRoundId, 'actions' => [['type' => 'bomb']]])
+        $this->withCookie(PlayerIdentityService::COOKIE_NAME, 'host_player')->postJson("/api/rooms/{$room->code}/actions", ['round_id' => $newRoundId, 'actions' => [['type' => 'bomb']]])
             ->assertOk()->assertJsonPath('success', true)->assertJsonPath('bombs.0.owner_id', 'host_player');
         $this->assertCount(1, Cache::get("arena_state_{$room->code}")['bombs']);
     }
@@ -65,23 +65,23 @@ class RoundSynchronizationTest extends TestCase
         [$room, $state] = $this->createPlayingRoom();
         Event::fake([GameRoomEvent::class]);
 
-        $response = $this->withHeader('X-Player-ID', 'host_player')->postJson("/api/rooms/{$room->code}/rematch", ['round_id' => $state['round_id']]);
+        $response = $this->withCredentials()->withCookie(PlayerIdentityService::COOKIE_NAME, 'host_player')->postJson("/api/rooms/{$room->code}/rematch", ['round_id' => $state['round_id']]);
 
-        $response->assertUnprocessable()->assertJsonPath('error', 'La partida debe finalizar antes de pedir revancha');
+        $response->assertUnprocessable()->assertJsonPath('error', 'La partida debe finalizar antes de pedir revancha.');
         $this->assertSame($state, Cache::get("arena_state_{$room->code}"));
         Event::assertNotDispatched(GameRoomEvent::class);
     }
 
-    public function test_returns_422_for_a_rematch_requested_by_a_non_participant(): void
+    public function test_returns_403_for_a_rematch_requested_by_a_non_participant(): void
     {
         [$room, $state] = $this->createPlayingRoom();
         app(RoomService::class)->cancelMatch($room->code, 'Admin');
         $cancelledState = Cache::get("arena_state_{$room->code}");
         Event::fake([GameRoomEvent::class]);
 
-        $response = $this->withHeader('X-Player-ID', 'outsider_player')->postJson("/api/rooms/{$room->code}/rematch", ['round_id' => $state['round_id']]);
+        $response = $this->withCredentials()->withCookie(PlayerIdentityService::COOKIE_NAME, 'outsider_player')->postJson("/api/rooms/{$room->code}/rematch", ['round_id' => $state['round_id']]);
 
-        $response->assertUnprocessable()->assertJsonPath('error', 'Jugador no está en la sala');
+        $response->assertForbidden();
         $this->assertSame($cancelledState, Cache::get("arena_state_{$room->code}"));
         Event::assertNotDispatched(GameRoomEvent::class);
     }
@@ -96,9 +96,9 @@ class RoundSynchronizationTest extends TestCase
         $finishedState = Cache::get("arena_state_{$room->code}");
         Event::fake([GameRoomEvent::class]);
 
-        $response = $this->withHeader('X-Player-ID', 'host_player')->postJson("/api/rooms/{$room->code}/rematch", ['round_id' => $state['round_id']]);
+        $response = $this->withCredentials()->withCookie(PlayerIdentityService::COOKIE_NAME, 'host_player')->postJson("/api/rooms/{$room->code}/rematch", ['round_id' => $state['round_id']]);
 
-        $response->assertUnprocessable()->assertJsonPath('error', 'Solo los perdedores pueden solicitar revancha');
+        $response->assertUnprocessable()->assertJsonPath('error', 'Solo los jugadores derrotados pueden solicitar revancha.');
         $this->assertSame($finishedState, Cache::get("arena_state_{$room->code}"));
         $this->assertDatabaseHas('rooms', ['id' => $room->id, 'status' => Room::STATE_FINISHED, 'winner_player_id' => 'host_player']);
         Event::assertNotDispatched(GameRoomEvent::class);
@@ -112,7 +112,7 @@ class RoundSynchronizationTest extends TestCase
         app(RoomService::class)->tickRoom($room->code);
         Event::fake([GameRoomEvent::class]);
 
-        $response = $this->withHeader('X-Player-ID', 'guest_player')->postJson("/api/rooms/{$room->code}/rematch", ['round_id' => $state['round_id']]);
+        $response = $this->approvedRematch($room, 'guest_player', $state['round_id']);
 
         $response->assertOk()->assertJsonPath('state.players.guest_player.alive', true)->assertJsonPath('state.is_game_over', false);
         $this->assertNotSame($state['round_id'], $response->json('state.round_id'));
@@ -141,7 +141,7 @@ class RoundSynchronizationTest extends TestCase
         Event::assertDispatched(GameRoomEvent::class, fn (GameRoomEvent $event): bool => $event->type === 'game_over' && $event->data['winner_id'] === $winnerId);
     }
 
-    public function test_a_draw_has_no_loser_who_can_request_rematch(): void
+    public function test_a_draw_allows_a_pending_request_without_restarting_the_round(): void
     {
         [$room, $state] = $this->createPlayingRoom();
         unset($state['movement_model']);
@@ -151,9 +151,9 @@ class RoundSynchronizationTest extends TestCase
         $finishedState = Cache::get("arena_state_{$room->code}");
         Event::fake([GameRoomEvent::class]);
 
-        $response = $this->withHeader('X-Player-ID', 'host_player')->postJson("/api/rooms/{$room->code}/rematch", ['round_id' => $state['round_id']]);
+        $response = $this->withCredentials()->withCookie(PlayerIdentityService::COOKIE_NAME, 'host_player')->postJson("/api/rooms/{$room->code}/rematch", ['round_id' => $state['round_id']]);
 
-        $response->assertUnprocessable()->assertJsonPath('error', 'Solo los perdedores pueden solicitar revancha');
+        $response->assertOk()->assertJsonPath('rematch.status', 'pending');
         $this->assertSame($finishedState, Cache::get("arena_state_{$room->code}"));
         Event::assertNotDispatched(GameRoomEvent::class);
     }
@@ -248,12 +248,12 @@ class RoundSynchronizationTest extends TestCase
         $this->assertTrue($lock->get());
 
         try {
-            $response = $this->withHeader('X-Player-ID', 'host_player')->postJson("/api/rooms/{$room->code}/rematch", ['round_id' => $state['round_id']]);
+            $response = $this->withCredentials()->withCookie(PlayerIdentityService::COOKIE_NAME, 'host_player')->postJson("/api/rooms/{$room->code}/rematch", ['round_id' => $state['round_id']]);
         } finally {
             $lock->release();
         }
 
-        $response->assertUnprocessable()->assertJsonPath('error', 'Servidor ocupado, reintenta');
+        $response->assertUnprocessable()->assertJsonPath('error', 'Sala ocupada; intenta nuevamente.');
         $this->assertSame($cancelledState, Cache::get("arena_state_{$room->code}"));
         $this->assertDatabaseHas('rooms', ['id' => $room->id, 'status' => Room::STATE_CANCELLED]);
     }
@@ -261,6 +261,17 @@ class RoundSynchronizationTest extends TestCase
     /**
      * @return array{0: Room, 1: array}
      */
+    private function approvedRematch(Room $room, string $requester, string $round): TestResponse
+    {
+        $response = $this->withCredentials()->withCookie(PlayerIdentityService::COOKIE_NAME, $requester)
+            ->postJson("/api/rooms/{$room->code}/rematch", ['round_id' => $round]);
+        $response->assertOk()->assertJsonPath('rematch.status', 'pending');
+        $other = $requester === 'host_player' ? 'guest_player' : 'host_player';
+
+        return $this->withCookie(PlayerIdentityService::COOKIE_NAME, $other)
+            ->postJson("/api/rooms/{$room->code}/rematch/respond", ['request_id' => $response->json('rematch.id'), 'round_id' => $round, 'accept' => true]);
+    }
+
     private function createPlayingRoom(): array
     {
         $service = app(RoomService::class);

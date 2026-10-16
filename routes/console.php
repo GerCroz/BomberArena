@@ -2,9 +2,17 @@
 
 use App\Models\Room;
 use App\Services\RoomService;
+use App\Services\RoomSocialService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schedule;
+
+Artisan::command('arena:rooms', function (RoomSocialService $social): void {
+    $social->sweep();
+})->purpose('Expire abandoned rooms and rematch requests');
+
+Schedule::command('arena:rooms')->everyMinute()->withoutOverlapping();
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());

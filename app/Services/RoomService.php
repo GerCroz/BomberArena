@@ -10,6 +10,7 @@ use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class RoomService
 {
@@ -36,21 +37,33 @@ class RoomService
     /**
      * Create a new room with a unique 6-character code.
      */
-    public function createRoom(string $hostPlayerId, string $nickname): Room
+    public function createRoom(string $hostPlayerId, string $nickname, array $options = []): Room
     {
-        return DB::transaction(function () use ($hostPlayerId, $nickname) {
+        $character = CharacterCatalog::validate($options['character_id'] ?? null);
+        $room = DB::transaction(function () use ($hostPlayerId, $nickname, $options, $character) {
             do {
                 $code = strtoupper(Str::random(6));
             } while (Room::where('code', $code)->exists());
 
             // Read currently active rules to configure room defaults
             $activeRules = $this->rulesService->getActiveRules();
+            $private = (bool) ($options['is_private'] ?? false);
+            $capacity = (int) ($options['max_players'] ?? $activeRules['max_players'] ?? 4);
+            if ($capacity < max(2, $activeRules['min_players'] ?? 2) || $capacity > min(4, $activeRules['max_players'] ?? 4)) {
+                throw ValidationException::withMessages(['max_players' => 'La capacidad no es compatible con las reglas actuales.']);
+            }
+            if (($private && ! ($activeRules['private_rooms_enabled'] ?? true)) || (! $private && ! ($activeRules['public_rooms_enabled'] ?? true))) {
+                throw ValidationException::withMessages(['is_private' => 'Este tipo de sala está deshabilitado.']);
+            }
+            $character = ($activeRules['character_selection_enabled'] ?? true) ? $character : 'neon-blue';
 
             $room = Room::create([
                 'code' => $code,
                 'host_player_id' => $hostPlayerId,
+                'name' => trim(strip_tags($options['name'] ?? 'Arena '.$code)),
+                'is_private' => $private,
+                'max_players' => $capacity,
                 'status' => Room::STATE_WAITING,
-                'max_players' => (int) ($activeRules['max_players'] ?? 4),
                 'round_duration_seconds' => (int) ($activeRules['round_duration_seconds'] ?? 180),
                 'map_seed' => mt_rand(10000, 99999),
                 'rules_version' => $activeRules['__version'] ?? 1,
@@ -62,7 +75,8 @@ class RoomService
                 'room_id' => $room->id,
                 'player_id' => $hostPlayerId,
                 'nickname' => $nickname,
-                'color' => self::COLORS[0],
+                'color' => $character,
+                'character_id' => $character,
                 'slot_index' => 0,
                 'is_host' => true,
                 'is_ready' => true, // Host is ready by default
@@ -85,17 +99,22 @@ class RoomService
 
             return $room->load('players');
         });
+        app(RoomSocialService::class)->changed($room, 'room.created');
+
+        return $room;
     }
 
     /**
      * Join an existing room.
      */
-    public function joinRoom(string $code, string $playerId, string $nickname): array
+    public function joinRoom(string $code, string $playerId, string $nickname, ?string $character = null): array
     {
-        return $this->withRoomLock($code, fn (): array => $this->joinLockedRoom($code, $playerId, $nickname));
+        CharacterCatalog::validate($character);
+
+        return $this->withRoomLock($code, fn (): array => $this->joinLockedRoom($code, $playerId, $nickname, $character));
     }
 
-    protected function joinLockedRoom(string $code, string $playerId, string $nickname): array
+    protected function joinLockedRoom(string $code, string $playerId, string $nickname, ?string $character = null): array
     {
         $room = Room::where('code', strtoupper($code))->first();
 
@@ -103,7 +122,7 @@ class RoomService
             return ['success' => false, 'error' => 'La sala no existe'];
         }
 
-        if ($room->status !== Room::STATE_WAITING) {
+        if (! in_array($room->status, [Room::STATE_WAITING, Room::STATE_READY], true)) {
             return ['success' => false, 'error' => 'La partida ya comenzó o finalizó'];
         }
 
@@ -112,11 +131,19 @@ class RoomService
             ->first();
 
         if ($existing) {
+            if ($character !== null && ($room->rules_snapshot['character_selection_enabled'] ?? true) && ($room->rules_snapshot['character_changes_enabled'] ?? true)) {
+                app(RoomSocialService::class)->ensureCharacterAvailable($room, $character, $playerId);
+                $existing->fill(['character_id' => $character, 'color' => $character]);
+            }
             $existing->update([
                 'nickname' => $nickname,
                 'last_seen_at' => now(),
             ]);
             $room->update(['last_activity_at' => now()]);
+            if ($existing->wasChanged(['character_id', 'nickname'])) {
+                app(RoomSocialService::class)->notify($room, 'player.character.updated', ['player_id' => $playerId, 'character_id' => $existing->character_id]);
+                app(RoomSocialService::class)->changed($room);
+            }
 
             return ['success' => true, 'room' => $room->load('players'), 'player' => $existing];
         }
@@ -134,11 +161,15 @@ class RoomService
             }
         }
 
+        $character = ($room->rules_snapshot['character_selection_enabled'] ?? true) ? ($character ?? self::COLORS[$slotIndex % 4]) : self::COLORS[$slotIndex % 4];
+        app(RoomSocialService::class)->ensureCharacterAvailable($room, $character);
+
         $player = RoomPlayer::create([
             'room_id' => $room->id,
             'player_id' => $playerId,
             'nickname' => $nickname,
-            'color' => self::COLORS[$slotIndex % 4],
+            'color' => $character,
+            'character_id' => $character,
             'slot_index' => $slotIndex,
             'is_host' => false,
             'is_ready' => false,
@@ -146,7 +177,7 @@ class RoomService
             'last_seen_at' => now(),
         ]);
 
-        $room->update(['last_activity_at' => now()]);
+        $room->update(['last_activity_at' => now(), 'status' => Room::STATE_WAITING]);
 
         $this->broadcastGameEvent(new GameRoomEvent($room->code, 'player_joined', [
             'player' => $player->toArray(),
@@ -253,7 +284,7 @@ class RoomService
             'slot_index' => $p->slot_index,
         ])->toArray();
 
-        $initialState = $this->engine->createInitialState($records, $room->map_seed, $rulesSnapshot);
+        $initialState = CharacterCatalog::decorate($this->engine->createInitialState($records, $room->map_seed, $rulesSnapshot), $players);
         Cache::put($this->stateKey($room->code), $initialState, 1800);
 
         $prevStatus = $room->status;
@@ -699,10 +730,10 @@ class RoomService
      */
     public function requestRematch(string $code, string $playerId, ?string $roundId = null): array
     {
-        return $this->withRoomLock($code, fn (): array => $this->startLockedRematch($code, $playerId, $roundId));
+        return app(RoomSocialService::class)->requestRematch($code, $playerId, $roundId);
     }
 
-    protected function startLockedRematch(string $code, string $playerId, ?string $roundId): array
+    public function startConfirmedRematch(string $code, string $playerId, ?string $roundId): array
     {
         $room = Room::where('code', strtoupper($code))->first();
         if (! $room) {
@@ -722,9 +753,9 @@ class RoomService
             return ['success' => false, 'error' => 'La ronda cambió; sincroniza la partida', 'stale_round' => true];
         }
 
-        // Check if rematch is allowed in room rules
-        if (($previousState['movement_model'] ?? null) !== 'classic-v2' && (empty($previousState['winner_id']) || $previousState['winner_id'] === $playerId)) {
-            return ['success' => false, 'error' => 'Solo los perdedores pueden solicitar revancha'];
+        $vote = $room->rematch_request;
+        if (! $vote || $vote['status'] !== 'approved' || $vote['round_id'] !== $roundId || count($vote['accepted']) !== count($vote['required'])) {
+            return ['success' => false, 'error' => 'La revancha requiere la aceptación de todos los participantes'];
         }
 
         $rules = $room->rules_snapshot ?? $this->rulesService->getActiveRules();
@@ -743,13 +774,18 @@ class RoomService
         ])->toArray();
 
         $newSeed = mt_rand(10000, 99999);
-        $initialState = $this->engine->createInitialState($records, $newSeed, $activeRules);
+        if ($players->count() < ($activeRules['min_players'] ?? 2) || $players->count() > $room->max_players || array_diff($vote['required'], $players->pluck('player_id')->all()) !== []) {
+            return ['success' => false, 'error' => 'Los participantes ya no cumplen los requisitos'];
+        }
+        $initialState = CharacterCatalog::decorate($this->engine->createInitialState($records, $newSeed, $activeRules), $players);
         Cache::put($this->stateKey($room->code), $initialState, 1800);
 
         $prevStatus = $room->status;
         $room->update([
             'status' => Room::STATE_PLAYING,
             'map_seed' => $newSeed,
+            'rematch_count' => $room->rematch_count + 1,
+            'rematch_request' => [...$vote, 'status' => 'started'],
             'rules_snapshot' => $activeRules,
             'rules_version' => $activeRules['__version'] ?? 1,
             'round_duration_seconds' => (int) ($activeRules['round_duration_seconds'] ?? 180),
@@ -778,6 +814,8 @@ class RoomService
             'rules' => $activeRules,
         ]));
 
+        app(RoomSocialService::class)->notify($room, 'rematch.started', ['round_id' => $initialState['round_id'], 'request_id' => $vote['id']]);
+
         $this->telemetry->recordEvent(
             $room->code,
             'rematch_started',
@@ -794,6 +832,12 @@ class RoomService
      */
     protected function broadcastGameEvent(GameRoomEvent $event): void
     {
+        if (in_array($event->type, ['player_joined', 'player_ready', 'game_started', 'game_over'], true)) {
+            $room = Room::where('code', $event->roomCode)->first();
+            if ($room) {
+                app(RoomSocialService::class)->changed($room, 'room.updated');
+            }
+        }
         try {
             broadcast($event);
         } catch (\Throwable $exception) {

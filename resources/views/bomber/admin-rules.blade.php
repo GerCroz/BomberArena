@@ -317,6 +317,23 @@
                     </div>
 
                     <!-- SECCIÓN D: TABLERO Y POWER-UPS -->
+                    <section class="cyber-panel p-5 sm:p-6 rounded-2xl">
+                        <h2 class="arcade-font text-sm font-bold text-cyan-300 mb-4">PERSONAJES, SALAS Y REVANCHAS</h2>
+                        <p class="text-xs text-slate-400 mb-4">Se aplican a nuevas salas y partidas. La capacidad máxima y la opción de habilitar revancha se mantienen en las reglas generales.</p>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <label class="flex items-center gap-2 text-sm text-slate-300"><input type="hidden" name="character_selection_enabled" value="0"><input type="checkbox" name="character_selection_enabled" value="1" {{ $activeRules['character_selection_enabled'] ? 'checked' : '' }}>Habilitar selección de personajes</label>
+                            <label class="flex items-center gap-2 text-sm text-slate-300"><input type="hidden" name="duplicate_characters_allowed" value="0"><input type="checkbox" name="duplicate_characters_allowed" value="1" {{ $activeRules['duplicate_characters_allowed'] ? 'checked' : '' }}>Permitir personajes repetidos</label>
+                            <label class="flex items-center gap-2 text-sm text-slate-300"><input type="hidden" name="character_changes_enabled" value="0"><input type="checkbox" name="character_changes_enabled" value="1" {{ $activeRules['character_changes_enabled'] ? 'checked' : '' }}>Permitir cambios antes de cada partida</label>
+                            <label class="flex items-center gap-2 text-sm text-slate-300"><input type="hidden" name="rematch_losers_only" value="0"><input type="checkbox" name="rematch_losers_only" value="1" {{ $activeRules['rematch_losers_only'] ? 'checked' : '' }}>Solo derrotados pueden solicitar revancha</label>
+                            <label class="flex items-center gap-2 text-sm text-slate-300"><input type="hidden" name="rematch_on_draw" value="0"><input type="checkbox" name="rematch_on_draw" value="1" {{ $activeRules['rematch_on_draw'] ? 'checked' : '' }}>Permitir solicitud en empate</label>
+                            <label class="flex items-center gap-2 text-sm text-slate-300"><input type="hidden" name="public_rooms_enabled" value="0"><input type="checkbox" name="public_rooms_enabled" value="1" {{ $activeRules['public_rooms_enabled'] ? 'checked' : '' }}>Habilitar salas públicas</label>
+                            <label class="flex items-center gap-2 text-sm text-slate-300"><input type="hidden" name="private_rooms_enabled" value="0"><input type="checkbox" name="private_rooms_enabled" value="1" {{ $activeRules['private_rooms_enabled'] ? 'checked' : '' }}>Permitir salas privadas</label>
+                            <label class="flex items-center gap-2 text-sm text-slate-300"><input type="hidden" name="show_playing_rooms" value="0"><input type="checkbox" name="show_playing_rooms" value="1" {{ $activeRules['show_playing_rooms'] ? 'checked' : '' }}>Mostrar salas en partida</label>
+                            <label class="text-sm text-slate-300">Respuesta a revancha (segundos)<input type="number" name="rematch_response_seconds" value="{{ $activeRules['rematch_response_seconds'] }}" min="10" max="120" required class="input-cyber w-full border border-slate-700 bg-slate-900 rounded-xl px-3 py-2"></label>
+                            <label class="text-sm text-slate-300">Máximo de revanchas (0 = sin límite)<input type="number" name="max_consecutive_rematches" value="{{ $activeRules['max_consecutive_rematches'] }}" min="0" max="20" required class="input-cyber w-full border border-slate-700 bg-slate-900 rounded-xl px-3 py-2"></label>
+                            <label class="text-sm text-slate-300">Expiración por inactividad (segundos)<input type="number" name="room_idle_seconds" value="{{ $activeRules['room_idle_seconds'] }}" min="60" max="3600" required class="input-cyber w-full border border-slate-700 bg-slate-900 rounded-xl px-3 py-2"></label>
+                        </div>
+                    </section>
                     <details class="cyber-panel p-5 sm:p-6 rounded-2xl">
                         <summary class="font-bold text-slate-300 cursor-pointer">Parámetros técnicos avanzados · próximas partidas</summary>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">

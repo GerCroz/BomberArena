@@ -33,6 +33,10 @@ class Room extends Model
 
     protected $fillable = [
         'code',
+        'name',
+        'is_private',
+        'rematch_request',
+        'rematch_count',
         'host_player_id',
         'status',
         'max_players',
@@ -53,6 +57,9 @@ class Room extends Model
 
     protected $casts = [
         'game_state' => 'array',
+        'is_private' => 'boolean',
+        'rematch_request' => 'array',
+        'rematch_count' => 'integer',
         'rules_snapshot' => 'array',
         'started_at' => 'datetime',
         'finished_at' => 'datetime',

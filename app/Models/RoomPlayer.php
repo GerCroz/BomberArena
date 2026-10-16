@@ -12,6 +12,7 @@ class RoomPlayer extends Model
         'player_id',
         'nickname',
         'color',
+        'character_id',
         'slot_index',
         'is_host',
         'is_ready',

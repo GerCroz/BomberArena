@@ -4,7 +4,11 @@ use App\Http\Controllers\AdminRulesController;
 use App\Http\Controllers\BomberGameController;
 use App\Http\Controllers\InstructorMonitorController;
 use App\Http\Controllers\RemoteStyleController;
+use App\Http\Controllers\RoomSocialController;
 use Illuminate\Support\Facades\Route;
+
+Route::get('/api/public-rooms', [RoomSocialController::class, 'index'])->name('api.rooms.public');
+Route::post('/api/arena/broadcasting/auth', [RoomSocialController::class, 'authorizeChannel']);
 
 /*
 |--------------------------------------------------------------------------
@@ -30,7 +34,11 @@ Route::prefix('api/rooms')->group(function () {
     Route::post('/{code}/input', [BomberGameController::class, 'input'])->name('api.rooms.input');
     Route::post('/{code}/detonate', [BomberGameController::class, 'detonate'])->name('api.rooms.detonate');
     Route::post('/{code}/tick', [BomberGameController::class, 'tick'])->name('api.rooms.tick');
-    Route::post('/{code}/rematch', [BomberGameController::class, 'rematch'])->name('api.rooms.rematch');
+    Route::post('/{code}/rematch', [RoomSocialController::class, 'requestRematch'])->name('api.rooms.rematch');
+    Route::post('/{code}/rematch/respond', [RoomSocialController::class, 'respond'])->name('api.rooms.rematch.respond');
+    Route::post('/{code}/character', [RoomSocialController::class, 'character']);
+    Route::post('/{code}/presence', [RoomSocialController::class, 'presence']);
+    Route::post('/{code}/leave', [RoomSocialController::class, 'leave']);
 });
 
 // Panel de Monitoreo Educativo de WebSockets para el Docente

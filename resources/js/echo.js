@@ -12,6 +12,8 @@ const forceTLS = isHttps || (import.meta.env.VITE_REVERB_SCHEME === 'https');
 
 window.Echo = new Echo({
     broadcaster: 'reverb',
+    authEndpoint: '/api/arena/broadcasting/auth',
+    auth: { headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '' } },
     key: import.meta.env.VITE_REVERB_APP_KEY,
     wsHost: host,
     wsPort: port,

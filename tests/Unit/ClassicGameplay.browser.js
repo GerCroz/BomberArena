@@ -21,19 +21,69 @@ async function page(){const {browserContextId}=await command('Target.createBrows
 async function key(session,type,key,code){await command('Input.dispatchKeyEvent',{type,key,code,windowsVirtualKeyCode:key==='ArrowRight'?39:key==='ArrowLeft'?37:key==='ArrowDown'?40:key==='ArrowUp'?38:32},session);}
 const read='({x:classicController.player?.position_x,y:classicController.player?.position_y,authoritativeX:gameState.players[CURRENT_PLAYER_ID].position_x ?? gameState.players[CURRENT_PLAYER_ID].x,authoritativeY:gameState.players[CURRENT_PLAYER_ID].position_y ?? gameState.players[CURRENT_PLAYER_ID].y,dir:classicController.direction,seq:classicController.sequence,ack:gameState.input_ack?.[CURRENT_PLAYER_ID],pending:inputRequests.size,tokenPresent:!!INPUT_TOKEN,transportState:window.Echo?.connector?.pusher?.connection?.state,clockOffset:serverClockOffset,corrections:classicController.corrections,fps:gameRenderer.metrics.fps,tick:gameState.tick,simulationTick:gameState.simulation_tick,round:gameState.round_id,alive:gameState.players[CURRENT_PLAYER_ID].alive,wsRttMs:diagnostics.wsRtt,httpRttMs:diagnostics.rtt,events:diagnostics.events,staleStates:diagnostics.staleStates,snapshotAgeMs:performance.now()-diagnostics.lastReceived,visualResponseMs:classicController.visualResponseMs,server:gameState.diagnostics})';
 try {
-    const host=await page();await evaluate(host,'document.getElementById("nickname").value="RecoveryHost"; createRoom();');
+    const observer=await page();
+    await evaluate(observer,"window.__lobbyEvents=0;window.Echo.channel('arena-lobby').listen('.LobbyRoomsChanged',()=>window.__lobbyEvents++);true;");
+    const host=await page();await evaluate(host,'document.getElementById("nickname").value="RecoveryHost";document.getElementById("room-name").value="Social Recovery Arena";createRoom();');
     const code=await until(host,'typeof ROOM_CODE !== "undefined" && ROOM_CODE');
+    await until(observer,`document.querySelector('[data-room-code="${code}"] button:not(:disabled)')`);
+    assert.ok(await evaluate(observer,'window.__lobbyEvents>0'),'lobby must receive Reverb invalidation');
+    await evaluate(observer,"document.getElementById('room-search').value='no-match-xyz';document.getElementById('room-search').dispatchEvent(new Event('input'));");
+    assert.equal(await evaluate(observer,`!!document.querySelector('[data-room-code="${code}"]')`),false);
+    await evaluate(observer,"document.getElementById('room-search').value='Social Recovery';document.getElementById('room-search').dispatchEvent(new Event('input'));");
+    await until(observer,`!!document.querySelector('[data-room-code="${code}"]')`);
     for(let i=1;i<=3;i++){
-        const guest=await page();await evaluate(guest,`document.getElementById('nickname').value='Recovery${i}';document.getElementById('join-code').value='${code}';joinRoom();`);
+        const guest=await page();
+        await evaluate(guest,`document.getElementById('nickname').value='Recovery${i}';selectLobbyCharacter('${['neon-blue','neon-pink','neon-green','neon-yellow'][i]}');`);
+        if(i===1) {
+            await until(guest,`!!document.querySelector('[data-room-code="${code}"] button:not(:disabled)')`);
+            await evaluate(guest,`document.querySelector('[data-room-code="${code}"] button').click();`);
+        } else await evaluate(guest,`document.getElementById('join-code').value='${code}';joinRoom();`);
         await until(guest,'typeof ROOM_CODE !== "undefined" && ROOM_CODE');
     }
     const all=await command('Target.getTargets');
     const targets=all.targetInfos.filter(t=>contexts.includes(t.browserContextId)&&t.url.includes('/arena/'));
     const players=[];
     for(const target of targets){const {sessionId}=await command('Target.attachToTarget',{targetId:target.targetId,flatten:true});await command('Runtime.enable',{},sessionId);players.push(sessionId);}
+    await until(observer,`document.querySelector('[data-room-code="${code}"] button:disabled')`);
+    await evaluate(observer,"document.getElementById('available-only').checked=true;document.getElementById('available-only').dispatchEvent(new Event('change'));");
+    assert.equal(await evaluate(observer,`!!document.querySelector('[data-room-code="${code}"]')`),false);
+    await evaluate(observer,"document.getElementById('available-only').checked=false;document.getElementById('available-only').dispatchEvent(new Event('change'));");
+    const temporary=await evaluate(host,`fetch('/api/rooms',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF_TOKEN},body:JSON.stringify({name:'Private capacity test',is_private:true,max_players:3,character_id:'neon-blue'})}).then(r=>r.json())`);
+    const temporaryCode=temporary.room.code;
+    const nonHost=[];
+    for(const player of players)if(await evaluate(player,'CURRENT_PLAYER_ID')!==await evaluate(host,'CURRENT_PLAYER_ID'))nonHost.push(player);
+    await evaluate(nonHost[0],`fetch('/api/rooms/join',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF_TOKEN},body:JSON.stringify({code:'${temporaryCode}',character_id:'neon-blue'})}).then(r=>r.json())`);
+    const secondApp=process.env.BOMBER_BROWSER_SECOND_APP||app;
+    const credentials=await Promise.all(nonHost.slice(1).map(async player=>{
+        const cookies=await command('Network.getCookies',{urls:[app]},player);
+        return {cookie:cookies.cookies.map(c=>c.name+'='+c.value).join('; '),csrf:await evaluate(player,'CSRF_TOKEN')};
+    }));
+    const attempts=await Promise.all(credentials.map(async (credential,index)=>{
+        const response=await fetch((index===0?app:secondApp)+'/api/rooms/join',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':credential.csrf,'Cookie':credential.cookie},body:JSON.stringify({code:temporaryCode,character_id:'neon-blue'})});
+        return {status:response.status,data:await response.json()};
+    }));
+    assert.deepEqual(attempts.map(a=>a.status).sort(),[200,422],'two HTTP workers must not overfill the last place');
+    await evaluate(observer,"document.getElementById('room-search').value='';document.getElementById('room-search').dispatchEvent(new Event('input'));");
+    assert.equal(await evaluate(observer,`!!document.querySelector('[data-room-code="${temporaryCode}"]')`),false,'private room must not appear');
+    for(const player of players)await evaluate(player,`fetch('/api/rooms/${temporaryCode}/leave',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF_TOKEN},body:'{}'}).then(r=>r.json())`);
+    results.push({id:'SOCIAL03',scenario:'name filters, availability filters, join via list, private visibility and last-slot race across HTTP workers',status:'passed',http_origins:[app,secondApp],last_place_statuses:attempts.map(a=>a.status)});
+    await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true},observer);
+    await delay(150);
+    const mobile=await evaluate(observer,'({content:document.documentElement.scrollWidth,viewport:innerWidth})');
+    assert.ok(mobile.content<=mobile.viewport+1,'mobile lobby must not overflow horizontally');
+    const layout=await command('Page.getLayoutMetrics',{},observer);
+    const screenshot=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width:390,height:layout.cssContentSize.height,scale:1}},observer);
+    writeFileSync('storage/app/social-lobby-mobile.png',Buffer.from(screenshot.data,'base64'));
+    results.push({id:'SOCIAL04',scenario:'390px mobile viewport without horizontal overflow',status:'passed',metrics:mobile});
+    await evaluate(host,"document.getElementById('room-character').value='neon-green';document.getElementById('room-character').dispatchEvent(new Event('change'));");
+    await until(host,"currentRoom.players.find(p=>p.player_id===CURRENT_PLAYER_ID)?.character_id==='neon-green'");
+    for(const player of players)await evaluate(player,"window.__rematchEvents=0;window.Echo.private('arena-social.'+ROOM_CODE).listen('.RoomSocialEvent',e=>{if(e.type.startsWith('rematch.'))window.__rematchEvents++;});true;");
+    results.push({id:'SOCIAL01',scenario:'public listing updates from real Reverb and character selection changes before start',status:'passed'});
     await evaluate(host,'startGame();');
     for(const player of players) await until(player,'gameState?.movement_model === "classic-v2" && currentRoom.status === "playing" && !isCountingDown && classicController !== null');
     await delay(500);
+    assert.equal(await evaluate(host,"gameState.players[CURRENT_PLAYER_ID].character_id"),'neon-green');
+    assert.equal(await evaluate(host,"Object.values(gameState.players).filter(p=>p.color==='neon-green').length"),2);
     const rules=await evaluate(host,'({collisions:gameState.rules.player_collisions,speed:gameState.rules.movement_speed,simulation:gameState.rules.simulation_hz,publish:gameState.rules.publish_hz})');
     assert.equal(rules.collisions,false);
     const before=await evaluate(host,read);
@@ -46,7 +96,7 @@ try {
     results.push({id:'BROWSER01',status:'pending',scenario:'hold/release with local prediction',before,immediate,released,afterRelease,settled,rules});
     assert.ok(settled.authoritativeX>1.05,'server must actually receive and simulate movement');
     await until(host,'Math.abs((gameState.players[CURRENT_PLAYER_ID].position_x ?? gameState.players[CURRENT_PLAYER_ID].x)-classicController.player.position_x)<0.08',5000);
-    results[0].status='passed';
+    results.find(r=>r.id==='BROWSER01').status='passed';
     await evaluate(host,'window.dispatchEvent(new Event("blur"));');assert.equal((await evaluate(host,read)).dir,null);
     results.push({id:'BROWSER02',scenario:'blur clears input',status:'passed'});
     const positions=await Promise.all(players.map(p=>evaluate(p,'({room:ROOM_CODE,round:gameState.round_id,players:gameState.players,version:gameState.version})')));
@@ -86,11 +136,28 @@ try {
     for(const player of players){if(await evaluate(player,'CURRENT_PLAYER_ID !== '+JSON.stringify(await evaluate(host,'CURRENT_PLAYER_ID')))) await evaluate(player,'sendBomb();');}
     await until(host,'gameState.is_game_over',10000);
     const oldRound=await evaluate(host,'gameState.round_id');
-    await evaluate(host,'requestRematch();');
+    const winnerAttempt=await evaluate(host,`fetch('/api/rooms/'+ROOM_CODE+'/rematch',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF_TOKEN},body:JSON.stringify({round_id:gameState.round_id})}).then(async r=>({status:r.status,data:await r.json()}))`);
+    assert.equal(winnerAttempt.status,422);
+    const hostId=await evaluate(host,'CURRENT_PLAYER_ID');
+    const losers=[];
+    for(const player of players)if(await evaluate(player,'CURRENT_PLAYER_ID')!==hostId)losers.push(player);
+    const requests=await Promise.all(losers.slice(0,2).map(player=>evaluate(player,`fetch('/api/rooms/'+ROOM_CODE+'/rematch',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF_TOKEN},body:JSON.stringify({round_id:gameState.round_id})}).then(async r=>({status:r.status,data:await r.json()}))`)));
+    assert.deepEqual(requests.map(r=>r.status).sort(),[200,422],'only one concurrent request may be pending');
+    await until(host,"currentRoom.rematch_request?.status==='pending'");
+    assert.ok(await evaluate(host,'window.__rematchEvents>0'),'winner must receive a private Reverb notification');
+    await evaluate(host,'window.ArenaSocial.respond(false);');
+    await until(losers[0],"currentRoom.rematch_request?.status==='rejected'");
+    assert.equal(await evaluate(host,'gameState.round_id'),oldRound);
+    await evaluate(losers[0],'window.ArenaSocial.requestRematch();');
+    await until(host,"currentRoom.rematch_request?.status==='pending'");
+    const requester=await evaluate(host,'currentRoom.rematch_request.requested_by');
+    for(const player of players)if(await evaluate(player,'CURRENT_PLAYER_ID')!==requester)await evaluate(player,'window.ArenaSocial.respond(true);');
+    results.push({id:'SOCIAL02',scenario:'winner rejected; two concurrent losers create one request; rejection prevents restart; unanimous approval starts once',status:'passed'});
     await until(host,`gameState.round_id !== '${oldRound}' && currentRoom.status === 'playing' && !isCountingDown`,15000);
     await key(host,'keyDown','ArrowDown','ArrowDown');await delay(150);await key(host,'keyUp','ArrowDown','ArrowDown');await delay(700);
-    const rematched=await evaluate(host,read);assert.ok(rematched.alive);assert.ok(rematched.authoritativeY>1);
-    results.push({id:'BROWSER07',scenario:'independent bombs eliminate players on the server and rematch restores working input',status:'passed',sample:rematched});
+    const rematched=await evaluate(host,read);assert.ok(rematched.alive);
+    assert.equal(await evaluate(host,"gameState.players[CURRENT_PLAYER_ID].character_id"),'neon-green');assert.ok(rematched.authoritativeY>1);
+    results.push({id:'BROWSER07',scenario:'server bombs and voted rematch restore working input and preserve characters',status:'passed',sample:rematched});
     await key(host,'keyDown','ArrowRight','ArrowRight');
     await key(host,'keyDown','ArrowLeft','ArrowLeft');
     assert.equal((await evaluate(host,read)).dir,'left');
@@ -118,4 +185,4 @@ try {
     results.push({id:'BROWSER_METRICS',duration_ms:performance.now()-runStarted,browser_cpu_seconds_during_latency_tests:cpuSeconds,metrics:Object.fromEntries(performanceMetrics.metrics.filter(m=>['JSHeapUsedSize','JSHeapTotalSize','Frames','TaskDuration'].includes(m.name)).map(m=>[m.name,m.value]))});
     console.log(JSON.stringify({code,results,errors},null,2));
 } catch(error){results.push({id:'BROWSER_FAILURE',error:error.message});console.log(JSON.stringify({results,errors},null,2));process.exitCode=1;}
-finally{writeFileSync('BomberArena-recovery-browser.json',JSON.stringify({results,errors},null,2));for(const id of contexts)await command('Target.disposeBrowserContext',{browserContextId:id}).catch(()=>{});socket.close();}
+finally{writeFileSync('BomberArena-social-browser.json',JSON.stringify({results,errors},null,2));for(const id of contexts)await command('Target.disposeBrowserContext',{browserContextId:id}).catch(()=>{});if(process.env.BOMBER_BROWSER_CLOSE==='1')await command('Browser.close').catch(()=>{});socket.close();}
