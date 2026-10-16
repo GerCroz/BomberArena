@@ -246,7 +246,7 @@ export class GameRenderer {
         }
         if (this.diagnostics) {
             ctx.fillStyle = '#000000';
-            ctx.fillRect(0, 0, this.canvas.width, 83);
+            ctx.fillRect(0, 0, this.canvas.width, 96);
             ctx.fillStyle = '#ffffff';
             ctx.font = '11px monospace';
             ctx.fillText(`Sala ${this.diagnostics.room} tick ${gameState.simulation_tick ?? gameState.tick ?? 0} v${gameState.version} seq ${this.diagnostics.sequence ?? gameState.input_sequences?.[currentUserId] ?? 0}`, 4, 13);
@@ -255,6 +255,7 @@ export class GameRenderer {
             ctx.fillText(`FPS ${this.metrics.fps.toFixed(0)} correcciones visuales ${this.metrics.visualCorrections} error max ${this.metrics.maxVisualError.toFixed(2)} casillas`, 4, 52);
             ctx.fillText(Object.values(gameState.players).map(p => `${p.slot ?? '?'}:${p.alive ? 'vivo' : 'eliminado'}`).join(' '), 4, 65);
             ctx.fillText(`Entrada ${this.diagnostics.pressed ?? 'quieto'} ACK ${this.diagnostics.acknowledged ?? 0} pendientes ${this.diagnostics.pending ?? 0} ${this.diagnostics.connection ?? ''}`,4,78);
+            ctx.fillText(`Hz servidor ${(gameState.diagnostics?.actual_simulation_hz ?? 0).toFixed(1)} error ${(this.diagnostics.prediction_error ?? 0).toFixed(3)} bomba ${(this.diagnostics.bomb_confirmation_ms ?? 0).toFixed(0)}ms`,4,91);
         }
     }
 }

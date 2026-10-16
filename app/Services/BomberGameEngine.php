@@ -236,7 +236,10 @@ class BomberGameEngine
     public function advanceMovement(array &$state, float $time): array
     {
         $continuousEvents = [];
-        if (($state['movement_model'] ?? null) === 'classic-v2' && ($state['current_inputs'] ?? []) !== []) {
+        if (! empty($state['ordered_stream_active'])) {
+            $continuousEvents = $this->advanceOrderedInputs($state, $time);
+        }
+        if (empty($state['ordered_stream_active']) && ($state['movement_model'] ?? null) === 'classic-v2' && ($state['current_inputs'] ?? []) !== []) {
             $interval = 1 / (int) ($state['rules']['simulation_hz'] ?? 20);
             $previous = (float) ($state['simulated_at'] ?? $time);
             $steps = min(2, max(0, (int) floor(($time - $previous + 0.000001) / $interval)));
@@ -340,6 +343,82 @@ class BomberGameEngine
         }
 
         return array_merge($continuousEvents, $events);
+    }
+
+    private function advanceOrderedInputs(array &$state, float $time): array
+    {
+        $events = [];
+        $interval = 1 / (int) ($state['rules']['simulation_hz'] ?? 20);
+        $previous = (float) ($state['simulated_at'] ?? $time);
+        $steps = min(2, max(0, (int) floor(($time - $previous + 0.000001) / $interval)));
+        $cursor = $time - $previous > 2 * $interval + 0.000001 ? $time - $steps * $interval : $previous;
+        for ($step = 0; $step < $steps; $step++) {
+            $cursor += $interval;
+            $state['simulation_tick'] = ($state['simulation_tick'] ?? 0) + 1;
+            foreach ($this->checkAndDetonateExpiredBombs($state, $cursor) as $explosion) {
+                $events[] = ['bomb_exploded', $explosion];
+            }
+            $players = array_keys($state['players']);
+            sort($players, SORT_STRING);
+            foreach ($players as $id) {
+                $creditAt = $state['input_credit_at'][$id] ?? $previous;
+                $credit = min(0.2 + $interval, ($state['input_credit'][$id] ?? 0) + max(0, min(0.2, $time - $creditAt)));
+                $state['input_credit_at'][$id] = $time;
+                foreach ($state['ordered_inputs'][$id] ?? [] as $sequence => $input) {
+                    if ($input['sampled_at'] > $cursor + 0.1 || $input['duration'] > $credit + 0.000001) {
+                        break;
+                    }
+                    unset($state['ordered_inputs'][$id][$sequence]);
+                    $state['input_ack'][$id] = $sequence;
+                    $state['version']++;
+                    if ($time - $input['sampled_at'] > 0.5 || ! $state['players'][$id]['alive'] || ! empty($state['is_game_over'])) {
+                        if (app()->environment('local')) {
+                            $state['diagnostics']['discarded_stale_frames'] = ($state['diagnostics']['discarded_stale_frames'] ?? 0) + 1;
+                        }
+
+                        continue;
+                    }
+                    $credit -= $input['duration'];
+                    $state['players'][$id] = ClassicMovement::step($state, $state['players'][$id], $input['direction'], $input['duration']);
+                    $this->collectPowerup($state, $id);
+                    if (isset($input['action_id']) && ! isset($state['seen_actions'][$id][$input['action_id']])) {
+                        $action = $input['action_id'];
+                        if (count($state['seen_actions'][$id] ?? []) < 4096) {
+                            $state['seen_actions'][$id][$action] = true;
+                            $result = $this->handlePlaceBomb($state, $id, $cursor);
+                        } else {
+                            $result = ['success' => false, 'error' => 'Limite de acciones de ronda'];
+                        }
+                        $result['sequence'] = $sequence;
+                        $result['tick'] = $state['simulation_tick'];
+                        $result['processed_at'] = $cursor;
+                        $result['position'] = [$state['players'][$id]['x'], $state['players'][$id]['y']];
+                        if ($result['success']) {
+                            $bombId = $result['bomb']['id'];
+                            $state['bombs'][$bombId]['action_id'] = $action;
+                            $result['bomb'] = $state['bombs'][$bombId];
+                            $events[] = ['bomb_placed', ['player_id' => $id, 'bomb' => $result['bomb'], 'temp_id' => $action]];
+                        }
+                        $state['action_results'][$id][$action] = $result;
+                        $state['action_results'][$id] = array_slice($state['action_results'][$id], -16, null, true);
+                    }
+                    foreach ($state['bombs'] as &$bomb) {
+                        $bomb['pass_through_players'] = array_values(array_filter($bomb['pass_through_players'] ?? [], function (string $playerId) use ($state, $bomb): bool {
+                            $player = $state['players'][$playerId];
+
+                            return $player['alive'] && abs(($player['position_x'] ?? $player['x']) - $bomb['x']) < 0.78 && abs(($player['position_y'] ?? $player['y']) - $bomb['y']) < 0.78;
+                        }));
+                    }
+                    unset($bomb);
+                }
+                $state['input_credit'][$id] = $credit;
+            }
+        }
+        if ($steps > 0) {
+            $state['simulated_at'] = $cursor;
+        }
+
+        return $events;
     }
 
     private function collectPowerup(array &$state, string $id): void
@@ -462,7 +541,7 @@ class BomberGameEngine
     /**
      * Plant a bomb by player with parameterized fuse duration.
      */
-    public function handlePlaceBomb(array &$state, string $playerId): array
+    public function handlePlaceBomb(array &$state, string $playerId, ?float $processedAt = null): array
     {
         if (! empty($state['is_game_over'])) {
             return ['success' => false, 'error' => 'Partida finalizada'];
@@ -503,7 +582,7 @@ class BomberGameEngine
 
         $state['bomb_sequence'] = ($state['bomb_sequence'] ?? 0) + 1;
         $bombId = 'bomb_'.$state['bomb_sequence'];
-        $plantedAt = (float) now()->format('U.u');
+        $plantedAt = $processedAt ?? (float) now()->format('U.u');
         $explodesAt = $plantedAt + $fuseSeconds;
 
         $bomb = [

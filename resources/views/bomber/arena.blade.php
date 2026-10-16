@@ -435,7 +435,7 @@
         let classicController = null;
         const inputRequests = new Map();
         let lastInputSentAt = 0;
-        let lastInputPingAt = null;
+        const inputPingTimes = [];
         let keyboardInitialized = false;
         let touchInitialized = false;
 
@@ -459,9 +459,12 @@
             }
         });
 
-        function syncServerTime(serverUnixTimestamp, rtt = 0) {
-            if (typeof serverUnixTimestamp === 'number' && serverUnixTimestamp > 0) {
-                serverClockOffset = (serverUnixTimestamp * 1000) - Date.now() + rtt / 2;
+        let lastClockSample = 0;
+        function syncServerTime(serverUnixTimestamp) {
+            if (typeof serverUnixTimestamp === 'number' && serverUnixTimestamp > lastClockSample) {
+                const observedOffset = (serverUnixTimestamp * 1000) - Date.now();
+                serverClockOffset = lastClockSample === 0 ? observedOffset : Math.max(serverClockOffset, observedOffset);
+                lastClockSample = serverUnixTimestamp;
             }
         }
 
@@ -595,11 +598,11 @@
             window.Echo.connector?.pusher?.connection?.bind('disconnected', () => resetClassicInput(false));
             window.Echo.connector?.pusher?.connection?.bind('unavailable', () => resetClassicInput(false));
             window.Echo.connector?.pusher?.connection?.bind('connected', () => {
-                if (classicController) { classicController.connected = true; classicController.clear(); classicController.player = null; sendCurrentInput(true); }
+                if (classicController) { classicController.connected = true; classicController.discardPending(); sendCurrentInput(true); }
                 fetchRoomState();
             });
             window.Echo.connector?.pusher?.connection?.bind('message', message => {
-                if (message.event === 'pusher:pong' && lastInputPingAt !== null) { diagnostics.wsRtt = performance.now() - lastInputPingAt; lastInputPingAt = null; }
+                if (message.event === 'pusher:pong' && inputPingTimes.length) { diagnostics.wsRtt = performance.now() - inputPingTimes.shift(); }
             });
         }
 
@@ -650,6 +653,7 @@
                     detonatedBombIds.clear();
                     gameState = data.state;
                     if (classicController) {
+                        classicController.discardPending();
                         classicController.player = null;
                         classicController.exitedBombs.clear();
                         classicController.correction = {x:0,y:0};
@@ -716,6 +720,10 @@
                             });
                         }
                         data.bomb.local_planted_at = performance.now();
+                        if (data.bomb.action_id && classicController?.provisionalBombs[data.bomb.action_id]) {
+                            classicController.bombConfirmationMs = performance.now() - classicController.provisionalBombs[data.bomb.action_id].started;
+                            delete classicController.provisionalBombs[data.bomb.action_id];
+                        }
                         gameState.bombs[data.bomb.id] = data.bomb;
                         if (data.bomb.owner_id !== CURRENT_PLAYER_ID && sfx) {
                             sfx.playBombDrop();
@@ -1121,7 +1129,7 @@
             window.addEventListener('blur', () => { heldDirections.clear(); endWalk(); resetClassicInput(true); });
             window.addEventListener('focus', () => { if (classicController) classicController.lastFrame = null; });
             window.addEventListener('offline', () => resetClassicInput(false));
-            window.addEventListener('online', () => { if (classicController) { classicController.connected = true; classicController.clear(); fetchRoomState(); } });
+            window.addEventListener('online', () => { if (classicController) { classicController.connected = true; classicController.discardPending(); fetchRoomState(); } });
             document.addEventListener('visibilitychange', () => { if (document.hidden) resetClassicInput(true); });
         }
 
@@ -1340,6 +1348,16 @@
             const me = gameState.players[CURRENT_PLAYER_ID];
             if (!me || !me.alive) return;
 
+            if (gameState.input_protocol === 3) {
+                const actionId = 'bomb_' + crypto.randomUUID().replaceAll('-', '');
+                if (classicController.queueBomb(actionId, getCurrentServerTime())) {
+                    if (sfx) sfx.playBombDrop();
+                    haptics.heavy();
+                    sendCurrentInput(true);
+                }
+                return;
+            }
+
             // Check active bomb count limit locally
             let activeBombs = 0;
             if (gameState.bombs) {
@@ -1556,15 +1574,24 @@
 
                 if (gameRenderer) {
                     if (classicController && gameState.movement_model === 'classic-v2') {
-                        const preview = classicController.update(gameState, CURRENT_PLAYER_ID, performance.now());
+                        const preview = classicController.update(gameState, CURRENT_PLAYER_ID, performance.now(), curServerTime);
                         gameRenderer.localPreview = preview;
-                        if (classicController.direction !== null && performance.now() - lastInputSentAt >= 150) sendCurrentInput();
+                        if (classicController.needsResync) {
+                            classicController.needsResync = false;
+                            fetchRoomState();
+                        }
+                        if (classicController.ordered && classicController.connected && gameState.players[CURRENT_PLAYER_ID]?.alive && classicController.direction === null && !classicController.pending.length && performance.now()-lastInputSentAt>=1000) {
+                            classicController.frame(0,null);
+                        }
+                        if ((classicController.direction !== null || classicController.pending.length) && performance.now() - lastInputSentAt >= 100) sendCurrentInput();
                     } else {
                     reconcileVisualPrediction();
                     gameRenderer.localPreview = visualPrediction ? { id: CURRENT_PLAYER_ID, x: visualPrediction.x, y: visualPrediction.y } : null;
                     }
-                    gameRenderer.diagnostics = diagnosticsEnabled ? { ...diagnostics, room: ROOM_CODE, pressed: classicController?.direction, sequence: classicController?.sequence, acknowledged: gameState.input_ack?.[CURRENT_PLAYER_ID] || 0, pending: inputRequests.size, connection: classicController?.connected ? 'conectado' : 'desconectado', corrections: classicController?.corrections ?? diagnostics.corrections } : null;
-                    gameRenderer.render(gameState, CURRENT_PLAYER_ID, performance.now() / 1000, curServerTime);
+                    gameRenderer.diagnostics = diagnosticsEnabled ? { ...diagnostics, room: ROOM_CODE, pressed: classicController?.direction, sequence: classicController?.sequence, acknowledged: gameState.input_ack?.[CURRENT_PLAYER_ID] || 0, pending: classicController?.ordered ? classicController.pending.length : inputRequests.size, prediction_error: classicController?.positionError, bomb_confirmation_ms: classicController?.bombConfirmationMs, connection: classicController?.connected ? 'conectado' : 'desconectado', corrections: classicController?.corrections ?? diagnostics.corrections } : null;
+                    const provisional = classicController?.ordered ? classicController.provisionalBombs : {};
+                    const renderState = Object.keys(provisional).length ? {...gameState,bombs:{...provisional,...gameState.bombs}} : gameState;
+                    gameRenderer.render(renderState, CURRENT_PLAYER_ID, performance.now() / 1000, curServerTime);
                 }
                 animFrameId = requestAnimationFrame(loop);
             }
@@ -1575,7 +1602,8 @@
             if (!classicController) return;
             classicController.clear();
             if (!notify) {
-                classicController.connected = false; pendingActionQueue = [];
+                inputPingTimes.length = 0;
+                classicController.connected = false; classicController.discardPending(); pendingActionQueue = [];
                 if (actionRequestController) actionRequestController.abort();
                 for (const request of inputRequests.values()) request.abort();
                 inputRequests.clear();
@@ -1591,13 +1619,16 @@
                 inputRequests.get(oldest).abort();inputRequests.delete(oldest);
             }
             const generation = roundGeneration;
-            const sequence = ++classicController.sequence;
+            const frames = gameState.input_protocol === 3 ? classicController.batch(getCurrentServerTime()) : null;
+            if (frames && !frames.length) return;
+            const sequence = frames ? frames.at(-1).sequence : ++classicController.sequence;
             const started = performance.now();
             const direction = classicController.direction;
             const connection = window.Echo?.connector?.pusher?.connection;
             if (INPUT_TOKEN && connection?.state === 'connected') {
-                lastInputPingAt = performance.now();
-                connection.send_event('pusher:ping', { arena_input: { room: ROOM_CODE, player: CURRENT_PLAYER_ID, token: INPUT_TOKEN, round_id: gameState.round_id, sequence, direction, sampled_at: getCurrentServerTime() } });
+                inputPingTimes.push(performance.now());
+                if (inputPingTimes.length > 24) inputPingTimes.shift();
+                connection.send_event('pusher:ping', { arena_input: { room: ROOM_CODE, player: CURRENT_PLAYER_ID, token: INPUT_TOKEN, round_id: gameState.round_id, sequence, direction, sampled_at: getCurrentServerTime(), ...(frames ? {frames} : {}) } });
                 lastInputSentAt = performance.now();
                 return;
             }
@@ -1608,12 +1639,12 @@
                 const response = await fetch(`/api/rooms/${ROOM_CODE}/input`, {
                     method: 'POST', signal: AbortSignal.any([request.signal, AbortSignal.timeout(3000)]),
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
-                    body: JSON.stringify({ round_id: gameState.round_id, sequence, direction, sampled_at: getCurrentServerTime() })
+                    body: JSON.stringify({ round_id: gameState.round_id, sequence, direction, sampled_at: getCurrentServerTime(), ...(frames ? {frames} : {}) })
                 });
                 const data = await response.json();
                 if (generation !== roundGeneration) return;
                 diagnostics.rtt = performance.now() - started;
-                if (data.server_time) syncServerTime(data.server_time, diagnostics.rtt);
+                if (data.server_time) syncServerTime(data.server_time);
                 (data.events || []).forEach(handleIncomingEvent);
                 applyStateSnapshot(data.state);
             } catch (error) {
@@ -1625,6 +1656,7 @@
 
         async function sendServerTick() {
             if (serverTickInFlight || !gameState || gameState.is_game_over) return;
+            if (gameState.input_protocol === 3 && window.Echo?.connector?.pusher?.connection?.state === 'connected' && performance.now()-diagnostics.lastReceived < 1500) return;
             serverTickInFlight = true;
             const generation = roundGeneration;
             const requestStarted = performance.now();

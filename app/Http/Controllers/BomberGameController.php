@@ -4,13 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Models\Room;
 use App\Services\ArenaInputService;
+use App\Services\ArenaStateStore;
 use App\Services\CharacterCatalog;
 use App\Services\GameRulesService;
+use App\Services\OrderedInputBuffer;
 use App\Services\PlayerIdentityService;
 use App\Services\RoomService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -49,7 +50,8 @@ class BomberGameController extends Controller
     public function arena(Request $request, string $code)
     {
         $room = Room::with('players')->where('code', strtoupper($code))->firstOrFail();
-        $room->game_state = Cache::get("arena_state_{$room->code}") ?? $room->game_state;
+        $storedState = ArenaStateStore::get($room->code) ?? $room->game_state;
+        $room->game_state = $storedState ? OrderedInputBuffer::snapshot($storedState) : null;
         $playerId = $this->browserPlayerId($request);
         $nickname = $this->identity->getNickname($request);
         $ownsIdentity = $request->cookie(PlayerIdentityService::COOKIE_NAME) === $playerId;
@@ -125,12 +127,15 @@ class BomberGameController extends Controller
         }
 
         $cleanCode = strtoupper($code);
-        $activeState = Cache::get("arena_state_{$cleanCode}") ?? $room->game_state;
+        $activeState = ArenaStateStore::get($cleanCode) ?? $room->game_state;
+        if ($room->game_state) {
+            $room->game_state = OrderedInputBuffer::snapshot($room->game_state);
+        }
 
         return response()->json([
             'room' => $room,
             'players' => $room->players,
-            'game_state' => $activeState,
+            'game_state' => $activeState ? OrderedInputBuffer::snapshot($activeState) : null,
             'server_time' => microtime(true),
         ]);
     }
@@ -213,8 +218,12 @@ class BomberGameController extends Controller
             'sequence' => ['required', 'integer', 'min:1', 'max:2147483647'],
             'direction' => ['nullable', 'string', 'in:up,down,left,right'],
             'sampled_at' => ['required', 'numeric'],
+            'frames' => ['sometimes', 'array', 'min:1', 'max:24'],
         ]);
-        $result = $this->roomService->updateInput($code, $this->identity->getOrCreatePlayerId($request), $input['round_id'], (int) $input['sequence'], $input['direction'] ?? null, (float) $input['sampled_at']);
+        $playerId = $this->identity->getOrCreatePlayerId($request);
+        $result = isset($input['frames'])
+            ? $this->roomService->updateOrderedInput($code, $playerId, $input['round_id'], $input['frames'])
+            : $this->roomService->updateInput($code, $playerId, $input['round_id'], (int) $input['sequence'], $input['direction'] ?? null, (float) $input['sampled_at']);
 
         return response()->json($result, $result['success'] ? 200 : 422);
     }

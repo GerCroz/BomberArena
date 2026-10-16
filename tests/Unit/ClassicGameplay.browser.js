@@ -19,7 +19,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
 async function until(session,expression,timeout=15000){const start=performance.now();while(performance.now()-start<timeout){try{const v=await evaluate(session,expression);if(v)return v;}catch{}await delay(100);}const details=await evaluate(session,'({url:location.href,ready:document.readyState,title:document.title,heading:document.querySelector("h1")?.innerText})').catch(()=>null);throw new Error('Timed out: '+expression+' '+JSON.stringify(details));}
 async function page(){const {browserContextId}=await command('Target.createBrowserContext');contexts.push(browserContextId);const {targetId}=await command('Target.createTarget',{url:app+'/lobby',browserContextId});const {sessionId}=await command('Target.attachToTarget',{targetId,flatten:true});await command('Runtime.enable',{},sessionId);await until(sessionId,'typeof createRoom === "function" && document.readyState === "complete"');return sessionId;}
 async function key(session,type,key,code){await command('Input.dispatchKeyEvent',{type,key,code,windowsVirtualKeyCode:key==='ArrowRight'?39:key==='ArrowLeft'?37:key==='ArrowDown'?40:key==='ArrowUp'?38:32},session);}
-const read='({x:classicController.player?.position_x,y:classicController.player?.position_y,authoritativeX:gameState.players[CURRENT_PLAYER_ID].position_x ?? gameState.players[CURRENT_PLAYER_ID].x,authoritativeY:gameState.players[CURRENT_PLAYER_ID].position_y ?? gameState.players[CURRENT_PLAYER_ID].y,dir:classicController.direction,seq:classicController.sequence,ack:gameState.input_ack?.[CURRENT_PLAYER_ID],pending:inputRequests.size,tokenPresent:!!INPUT_TOKEN,transportState:window.Echo?.connector?.pusher?.connection?.state,clockOffset:serverClockOffset,corrections:classicController.corrections,fps:gameRenderer.metrics.fps,tick:gameState.tick,simulationTick:gameState.simulation_tick,round:gameState.round_id,alive:gameState.players[CURRENT_PLAYER_ID].alive,wsRttMs:diagnostics.wsRtt,httpRttMs:diagnostics.rtt,events:diagnostics.events,staleStates:diagnostics.staleStates,snapshotAgeMs:performance.now()-diagnostics.lastReceived,visualResponseMs:classicController.visualResponseMs,server:gameState.diagnostics})';
+const read='({x:classicController.player?.position_x,y:classicController.player?.position_y,authoritativeX:gameState.players[CURRENT_PLAYER_ID].position_x ?? gameState.players[CURRENT_PLAYER_ID].x,authoritativeY:gameState.players[CURRENT_PLAYER_ID].position_y ?? gameState.players[CURRENT_PLAYER_ID].y,dir:classicController.direction,seq:classicController.sequence,ack:gameState.input_ack?.[CURRENT_PLAYER_ID],pending:classicController.ordered ? classicController.pending.length : inputRequests.size,tokenPresent:!!INPUT_TOKEN,transportState:window.Echo?.connector?.pusher?.connection?.state,clockOffset:serverClockOffset,corrections:classicController.corrections,fps:gameRenderer.metrics.fps,tick:gameState.tick,simulationTick:gameState.simulation_tick,round:gameState.round_id,alive:gameState.players[CURRENT_PLAYER_ID].alive,wsRttMs:diagnostics.wsRtt,httpRttMs:diagnostics.rtt,events:diagnostics.events,staleStates:diagnostics.staleStates,snapshotAgeMs:performance.now()-diagnostics.lastReceived,visualResponseMs:classicController.visualResponseMs,server:gameState.diagnostics})';
 try {
     const observer=await page();
     await evaluate(observer,"window.__lobbyEvents=0;window.Echo.channel('arena-lobby').listen('.LobbyRoomsChanged',()=>window.__lobbyEvents++);true;");
@@ -106,11 +106,24 @@ try {
     const concurrentBefore=await Promise.all(players.map(p=>evaluate(p,read)));
     const directions={0:['ArrowLeft','ArrowLeft'],1:['ArrowLeft','ArrowLeft'],2:['ArrowLeft','ArrowLeft'],3:['ArrowRight','ArrowRight']};
     for(const player of players){const slot=await evaluate(player,'gameState.players[CURRENT_PLAYER_ID].slot');await key(player,'keyDown',...directions[slot]);}
-    await delay(250);
-    for(const player of players){const slot=await evaluate(player,'gameState.players[CURRENT_PLAYER_ID].slot');await key(player,'keyUp',...directions[slot]);}
+    await Promise.all(players.map(player=>evaluate(player,'window.__motion=[];window.__motionTimer=setInterval(()=>window.__motion.push({x:classicController.player.position_x,y:classicController.player.position_y,dir:classicController.direction,ack:classicController.lastAcknowledged,pending:classicController.pending,committed:classicController.committed,authority:gameState.players[CURRENT_PLAYER_ID],error:classicController.positionError,serverTime:getCurrentServerTime(),local:performance.now(),diagnostics:gameState.diagnostics}),20);')));
+    for(let turn=0;turn<50;turn++){
+        await delay(200);
+        if(turn===49)break;
+        for(const player of players){
+            const slot=await evaluate(player,'gameState.players[CURRENT_PLAYER_ID].slot');
+            const original=directions[slot][0],previous=turn%2===0?original:(original==='ArrowLeft'?'ArrowRight':'ArrowLeft');
+            const next=previous==='ArrowLeft'?'ArrowRight':'ArrowLeft';
+            await key(player,'keyUp',previous,previous);await key(player,'keyDown',next,next);
+        }
+    }
+    const motionSamples=await Promise.all(players.map(player=>evaluate(player,'clearInterval(window.__motionTimer);window.__motion')));
+    for(const samples of motionSamples)for(let i=1;i<samples.length;i++){if(samples[i].dir===samples[i-1].dir && (samples[i].x-samples[i-1].x)*(samples[i].dir==='left'?-1:1)<-0.001)results.push({id:'REVERSE_FAILURE_TRACE',before:samples[i-1],after:samples[i]});assert.ok(samples[i].dir!==samples[i-1].dir || (samples[i].x-samples[i-1].x)*(samples[i].dir==='left'?-1:1)>=-0.001,'unjustified reverse during simultaneous movement');}
+    results.push({id:'ORDERED_REVERSE',scenario:'four moving browsers change direction every 200ms for ten seconds without resting against walls; sampled every 20ms',status:'passed',samples:motionSamples.map(list=>list.map(({x,y,dir,ack,error,local,diagnostics,pending})=>({x,y,dir,ack,error,local,pending:pending.length,discarded:diagnostics.discarded_stale_frames ?? 0})))});
+    for(const player of players){const slot=await evaluate(player,'gameState.players[CURRENT_PLAYER_ID].slot');const original=directions[slot][0],current=original==='ArrowLeft'?'ArrowRight':'ArrowLeft';await key(player,'keyUp',current,current);}
     await delay(1500);
     const concurrentAfter=await Promise.all(players.map(p=>evaluate(p,read)));
-    for(let i=0;i<players.length;i++) assert.ok(Math.abs(concurrentAfter[i].authoritativeX-concurrentBefore[i].authoritativeX)>0.1,'every player must move on the server');
+    for(const samples of motionSamples){const xs=samples.map(s=>s.authority.position_x ?? s.authority.x);assert.ok(Math.max(...xs)-Math.min(...xs)>.1,'every player must move on the server');}
     results.push({id:'BROWSER05',scenario:'four players move concurrently with independent input',status:'passed',samples:concurrentAfter});
     const cpuBefore=await command('SystemInfo.getProcessInfo');
     for(const latency of [30,100,200,300]){
@@ -120,7 +133,7 @@ try {
         const localStop=await evaluate(host,read);await delay(60);const localAfter=await evaluate(host,read);
         assert.equal(localAfter.dir,null);assert.ok(Math.abs(localStop.x-localAfter.x)<0.05,'late input must not continue local movement');
         await delay(latency+1000);
-        const final=await evaluate(host,read);assert.ok(final.pending<=2);assert.ok(Math.abs(final.x-final.authoritativeX)<0.15,'position must reconcile after delayed input');
+        const final=await evaluate(host,read);assert.ok(final.pending<=64);assert.ok(Math.abs(final.x-final.authoritativeX)<0.15,'position must reconcile after delayed input');
         results.push({id:'LATENCY'+latency,scenario:'real Reverb transport with injected one-way input delay and 0-24ms jitter',status:'passed',before:beforeLatency,stopped:localStop,final});
         await evaluate(host,'window.Echo.connector.pusher.connection.send_event=window.__originalSend;');
         await key(host,'keyDown','ArrowLeft','ArrowLeft');await delay(300);await key(host,'keyUp','ArrowLeft','ArrowLeft');await delay(1000);
@@ -129,9 +142,9 @@ try {
     await evaluate(host,'window.Echo.disconnect();');await delay(600);
     assert.equal((await evaluate(host,read)).dir,null);
     await evaluate(host,'window.Echo.connector.pusher.connect();');await delay(1500);
-    results.push({id:'RECONNECT_DIAGNOSTIC',sample:await evaluate(host,read),controller:await evaluate(host,'({ack:classicController.lastAcknowledged,correction:classicController.correction,connected:classicController.connected,inputs:gameState.current_inputs,lastPublished:gameState.last_published_version,version:gameState.version})')});
+    results.push({id:'RECONNECT_DIAGNOSTIC',sample:await evaluate(host,read),controller:await evaluate(host,'({pendingFrames:classicController.pending,ack:classicController.lastAcknowledged,correction:classicController.correction,connected:classicController.connected,inputs:gameState.current_inputs,lastPublished:gameState.last_published_version,version:gameState.version})')});
     await until(host,'Math.abs((gameState.players[CURRENT_PLAYER_ID].position_x ?? gameState.players[CURRENT_PLAYER_ID].x)-classicController.player.position_x)<0.08',5000);
-    const reconnected=await evaluate(host,read);assert.equal(reconnected.dir,null);assert.ok(reconnected.pending<=2);
+    const reconnected=await evaluate(host,read);assert.equal(reconnected.dir,null);assert.ok(reconnected.pending<=64);
     results.push({id:'BROWSER06',scenario:'disconnect clears held input and reconnect has no replay',status:'passed',sample:reconnected});
     for(const player of players){if(await evaluate(player,'CURRENT_PLAYER_ID !== '+JSON.stringify(await evaluate(host,'CURRENT_PLAYER_ID')))) await evaluate(player,'sendBomb();');}
     await until(host,'gameState.is_game_over',10000);
@@ -169,14 +182,24 @@ try {
     await evaluate(host,'document.getElementById("dpad-right").dispatchEvent(new PointerEvent("pointercancel",{pointerId:7,bubbles:true}));');
     assert.equal((await evaluate(host,read)).dir,null);
     results.push({id:'BROWSER08',scenario:'opposite keys, restoration of held direction and pointer cancellation use current input',status:'passed'});
-    const activeStart=await evaluate(host,'({time:performance.now(),events:diagnostics.events,corrections:classicController.corrections})');
-    await evaluate(host,'window.__recoverySamples=[]; window.__recoverySampler=setInterval(()=>{ const p=classicController.player,a=gameState.players[CURRENT_PLAYER_ID]; window.__recoverySamples.push({errorCells:Math.hypot(p.position_x-(a.position_x ?? a.x),p.position_y-(a.position_y ?? a.y)),snapshotAgeMs:performance.now()-diagnostics.lastReceived,simulationMs:gameState.diagnostics?.simulation_ms,fps:gameRenderer.metrics.fps,pending:inputRequests.size});},25);');
+    const activeStart=await evaluate(host,'({time:performance.now(),tick:gameState.simulation_tick,events:diagnostics.events,corrections:classicController.corrections})');
+    await evaluate(host,'window.__recoverySamples=[]; window.__recoverySampler=setInterval(()=>{ const p=classicController.player,a=gameState.players[CURRENT_PLAYER_ID]; window.__recoverySamples.push({errorCells:Math.hypot(p.position_x-(a.position_x ?? a.x),p.position_y-(a.position_y ?? a.y)),lastCorrection:classicController.lastCorrection,correctionCount:classicController.corrections,discardedFrames:gameState.diagnostics?.discarded_stale_frames,snapshotAgeMs:performance.now()-diagnostics.lastReceived,simulationMs:gameState.diagnostics?.simulation_ms,fps:gameRenderer.metrics.fps,pending:classicController.ordered ? classicController.pending.length : inputRequests.size});},25);');
     await key(host,'keyDown','ArrowDown','ArrowDown');await delay(1000);await key(host,'keyUp','ArrowDown','ArrowDown');
     await key(host,'keyDown','ArrowUp','ArrowUp');await delay(1000);await key(host,'keyUp','ArrowUp','ArrowUp');await delay(500);
-    const activeEnd=await evaluate(host,'clearInterval(window.__recoverySampler); ({time:performance.now(),events:diagnostics.events,corrections:classicController.corrections,samples:window.__recoverySamples})');
+    const activeEnd=await evaluate(host,'clearInterval(window.__recoverySampler); ({time:performance.now(),tick:gameState.simulation_tick,events:diagnostics.events,corrections:classicController.corrections,samples:window.__recoverySamples})');
     const activeSeconds=(activeEnd.time-activeStart.time)/1000;
-    assert.ok(activeEnd.samples.every(s=>s.pending<=2));
-    results.push({id:'BROWSER09',scenario:'measured active movement window after rematch',status:'passed',duration_seconds:activeSeconds,received_game_events_per_second:(activeEnd.events-activeStart.events)/activeSeconds,hard_corrections_per_minute:(activeEnd.corrections-activeStart.corrections)*60/activeSeconds,samples:activeEnd.samples});
+    assert.ok(activeEnd.samples.every(s=>s.pending<=64));
+    results.push({id:'BROWSER09',scenario:'measured active movement window after rematch',status:'passed',duration_seconds:activeSeconds,observed_tick_arrival_hz:(activeEnd.tick-activeStart.tick)/activeSeconds,received_game_events_per_second:(activeEnd.events-activeStart.events)/activeSeconds,position_corrections_per_minute:(activeEnd.corrections-activeStart.corrections)*60/activeSeconds,samples:activeEnd.samples});
+    await key(host,'keyDown','ArrowDown','ArrowDown');await delay(120);
+    const expectedBomb=await evaluate(host,`sendBomb();const entry=Object.entries(classicController.provisionalBombs).at(-1);entry?{action:entry[0],x:entry[1].x,y:entry[1].y,sequence:entry[1].sequence}:null`);
+    assert.ok(expectedBomb,'ordered action must have a local provisional representation');
+    await delay(180);await key(host,'keyUp','ArrowDown','ArrowDown');
+    await until(host,`!!gameState.action_results?.[CURRENT_PLAYER_ID]?.['${expectedBomb.action}']`,4000);
+    const bombResult=await evaluate(host,`gameState.action_results[CURRENT_PLAYER_ID]['${expectedBomb.action}']`);
+    assert.equal(bombResult.success,true);assert.deepEqual([bombResult.bomb.x,bombResult.bomb.y],[expectedBomb.x,expectedBomb.y]);
+    assert.equal(bombResult.sequence,expectedBomb.sequence);
+    assert.equal(await evaluate(host,`Object.values(gameState.bombs).filter(b=>b.action_id==='${expectedBomb.action}').length`),1);
+    results.push({id:'ORDERED_BOMB',scenario:'bomb while moving retains the tile and sequence at keypress, without duplication',status:'passed',expected:expectedBomb,confirmed:bombResult,confirmation_ms:await evaluate(host,'classicController.bombConfirmationMs')});
     const cpuAfter=await command('SystemInfo.getProcessInfo');
     const beforeCpu=new Map(cpuBefore.processInfo.map(p=>[p.id,p.cpuTime]));
     const cpuSeconds=cpuAfter.processInfo.reduce((sum,p)=>sum+Math.max(0,p.cpuTime-(beforeCpu.get(p.id)??p.cpuTime)),0);
@@ -185,4 +208,4 @@ try {
     results.push({id:'BROWSER_METRICS',duration_ms:performance.now()-runStarted,browser_cpu_seconds_during_latency_tests:cpuSeconds,metrics:Object.fromEntries(performanceMetrics.metrics.filter(m=>['JSHeapUsedSize','JSHeapTotalSize','Frames','TaskDuration'].includes(m.name)).map(m=>[m.name,m.value]))});
     console.log(JSON.stringify({code,results,errors},null,2));
 } catch(error){results.push({id:'BROWSER_FAILURE',error:error.message});console.log(JSON.stringify({results,errors},null,2));process.exitCode=1;}
-finally{writeFileSync('BomberArena-social-browser.json',JSON.stringify({results,errors},null,2));for(const id of contexts)await command('Target.disposeBrowserContext',{browserContextId:id}).catch(()=>{});if(process.env.BOMBER_BROWSER_CLOSE==='1')await command('Browser.close').catch(()=>{});socket.close();}
+finally{writeFileSync(process.env.BOMBER_BROWSER_REPORT || 'BomberArena-synchronization-browser.json',JSON.stringify({results,errors},null,2));for(const id of contexts)await command('Target.disposeBrowserContext',{browserContextId:id}).catch(()=>{});if(process.env.BOMBER_BROWSER_CLOSE==='1')await command('Browser.close').catch(()=>{});socket.close();}

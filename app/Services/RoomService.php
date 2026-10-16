@@ -285,7 +285,8 @@ class RoomService
         ])->toArray();
 
         $initialState = CharacterCatalog::decorate($this->engine->createInitialState($records, $room->map_seed, $rulesSnapshot), $players);
-        Cache::put($this->stateKey($room->code), $initialState, 1800);
+        $initialState['input_protocol'] = 3;
+        ArenaStateStore::cache()->put($this->stateKey($room->code), $initialState, 1800);
 
         $prevStatus = $room->status;
         $room->update([
@@ -337,7 +338,7 @@ class RoomService
     protected function withRoomLock(string $code, callable $operation): array
     {
         try {
-            return Cache::lock('arena_lock_'.strtoupper($code), 10)->block(3, $operation);
+            return ArenaStateStore::cache()->lock('arena_lock_'.strtoupper($code), 10)->block(3, $operation);
         } catch (LockTimeoutException $exception) {
             return ['success' => false, 'error' => 'Servidor ocupado, reintenta'];
         }
@@ -350,7 +351,7 @@ class RoomService
     {
         $mutationStarted = hrtime(true);
         $cleanCode = strtoupper($code);
-        $lock = Cache::lock("arena_lock_{$cleanCode}", 10);
+        $lock = ArenaStateStore::cache()->lock("arena_lock_{$cleanCode}", 10);
 
         try {
             $lock->block(3);
@@ -362,7 +363,7 @@ class RoomService
         $telemetry = [];
 
         try {
-            $state = Cache::get($this->stateKey($cleanCode));
+            $state = ArenaStateStore::get($cleanCode);
 
             if (! $state) {
                 $room = Room::where('code', $cleanCode)->first();
@@ -373,11 +374,11 @@ class RoomService
             }
 
             if ($roundId !== null && $roundId !== ($state['round_id'] ?? null)) {
-                return ['success' => false, 'error' => 'La ronda cambió; sincroniza la partida', 'stale_round' => true, 'state' => $state, 'server_time' => microtime(true)];
+                return ['success' => false, 'error' => 'La ronda cambió; sincroniza la partida', 'stale_round' => true, 'state' => OrderedInputBuffer::snapshot($state), 'server_time' => microtime(true)];
             }
 
             if (! empty($state['is_game_over'])) {
-                return ['success' => false, 'error' => 'Partida finalizada', 'state' => $state, 'server_time' => microtime(true)];
+                return ['success' => false, 'error' => 'Partida finalizada', 'state' => OrderedInputBuffer::snapshot($state), 'server_time' => microtime(true)];
             }
 
             $previousVersion = $state['version'];
@@ -385,6 +386,10 @@ class RoomService
                 $state['diagnostics']['previous_mutation_ms'] = $this->lastMutationTimes[$cleanCode] ?? 0;
             }
             foreach ($state['players'] as $id => $player) {
+                OrderedInputBuffer::merge($state, $id, OrderedInputBuffer::read($cleanCode, $state['round_id'], $id), (float) now()->format('U.u'));
+                if (! empty($state['ordered_stream_active'])) {
+                    continue;
+                }
                 $input = Cache::get(ArenaInputService::key($cleanCode, $state['round_id'], $id));
                 if ($player['alive'] && $input && $input['sequence'] > ($state['input_ack'][$id] ?? 0)) {
                     $inputReceivedAt = $input['received_at'];
@@ -403,6 +408,13 @@ class RoomService
             array_push($events, ...$this->engine->advanceMovement($state, (float) now()->format('U.u')));
             if (app()->environment('local')) {
                 $state['diagnostics']['simulation_ms'] = (hrtime(true) - $simulationStarted) / 1_000_000;
+                $sampleTime = (float) now()->format('U.u');
+                $window = $state['diagnostic_window'] ?? ['time' => $sampleTime, 'tick' => $state['simulation_tick'] ?? 0];
+                if ($sampleTime - $window['time'] >= 2) {
+                    $state['diagnostics']['actual_simulation_hz'] = (($state['simulation_tick'] ?? 0) - $window['tick']) / ($sampleTime - $window['time']);
+                    $window = ['time' => $sampleTime, 'tick' => $state['simulation_tick'] ?? 0];
+                }
+                $state['diagnostic_window'] = $window;
             }
             if (empty($state['is_game_over'])) {
                 $result = $mutation($state, $events, $telemetry);
@@ -430,9 +442,9 @@ class RoomService
             if ($state['version'] > ($state['last_published_version'] ?? $previousVersion) && ($publishTime - ($state['last_published_at'] ?? 0) >= $publishInterval || ! empty($state['is_game_over']))) {
                 $state['last_published_at'] = $publishTime;
                 $state['last_published_version'] = $state['version'];
-                $events[] = ['state_updated', ['state' => $state]];
+                $events[] = ['state_updated', ['state' => OrderedInputBuffer::snapshot($state)]];
             }
-            Cache::put($this->stateKey($cleanCode), $state, 1800);
+            ArenaStateStore::cache()->put($this->stateKey($cleanCode), $state, 1800);
             // Authoritatively persist match completion and transition state to FINISHED (exactly once)
             if (! empty($state['is_game_over'])) {
                 $finishReason = $state['finish_reason'] ?? Room::REASON_LAST_PLAYER_ALIVE;
@@ -474,7 +486,7 @@ class RoomService
         $result['round_id'] = $state['round_id'] ?? null;
         $result['version'] = $state['version'] ?? 1;
         $result['tick'] = $state['tick'] ?? 0;
-        $result['state'] = $state;
+        $result['state'] = OrderedInputBuffer::snapshot($state);
         $result['server_time'] = microtime(true);
         $result['events'] = [];
         foreach ($events as [$type, $data]) {
@@ -500,6 +512,18 @@ class RoomService
     /**
      * Process an ordered batch of player actions (moves and bombs) atomically.
      */
+    public function updateOrderedInput(string $code, string $playerId, string $roundId, array $frames): array
+    {
+        return $this->mutateState($code, function (array &$state) use ($playerId, $frames): array {
+            if (! isset($state['players'][$playerId]) || ! OrderedInputBuffer::valid($frames)) {
+                return ['success' => false, 'error' => 'Entradas invalidas'];
+            }
+            OrderedInputBuffer::merge($state, $playerId, $frames, (float) now()->format('U.u'));
+
+            return ['success' => true];
+        }, $roundId);
+    }
+
     public function updateInput(string $code, string $playerId, string $roundId, int $sequence, ?string $direction, float $sampledAt): array
     {
         return $this->mutateState($code, function (array &$state, array &$events, array &$telemetry) use ($playerId, $sequence, $direction, $sampledAt): array {
@@ -703,11 +727,11 @@ class RoomService
             'last_activity_at' => now(),
         ]);
 
-        $state = Cache::get($this->stateKey($room->code));
+        $state = ArenaStateStore::get($room->code);
         if ($state) {
             $state['is_game_over'] = true;
             $state['finish_reason'] = Room::REASON_ADMIN_CANCELLED;
-            Cache::put($this->stateKey($room->code), $state, 1800);
+            ArenaStateStore::cache()->put($this->stateKey($room->code), $state, 1800);
         }
 
         $this->recordAudit($room->code, $prevStatus, Room::STATE_CANCELLED, Room::REASON_ADMIN_CANCELLED, [
@@ -748,7 +772,7 @@ class RoomService
             return ['success' => false, 'error' => 'La partida debe finalizar antes de pedir revancha'];
         }
 
-        $previousState = Cache::get($this->stateKey($room->code)) ?? $room->game_state;
+        $previousState = ArenaStateStore::get($room->code) ?? $room->game_state;
         if ($roundId !== null && $roundId !== ($previousState['round_id'] ?? null)) {
             return ['success' => false, 'error' => 'La ronda cambió; sincroniza la partida', 'stale_round' => true];
         }
@@ -778,7 +802,8 @@ class RoomService
             return ['success' => false, 'error' => 'Los participantes ya no cumplen los requisitos'];
         }
         $initialState = CharacterCatalog::decorate($this->engine->createInitialState($records, $newSeed, $activeRules), $players);
-        Cache::put($this->stateKey($room->code), $initialState, 1800);
+        $initialState['input_protocol'] = 3;
+        ArenaStateStore::cache()->put($this->stateKey($room->code), $initialState, 1800);
 
         $prevStatus = $room->status;
         $room->update([
@@ -832,6 +857,9 @@ class RoomService
      */
     protected function broadcastGameEvent(GameRoomEvent $event): void
     {
+        if ($event->type === 'state_updated') {
+            return;
+        }
         if (in_array($event->type, ['player_joined', 'player_ready', 'game_started', 'game_over'], true)) {
             $room = Room::where('code', $event->roomCode)->first();
             if ($room) {

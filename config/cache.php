@@ -3,6 +3,8 @@
 use Illuminate\Support\Str;
 
 return [
+    'arena_input_store' => env('ARENA_INPUT_CACHE_STORE', 'file'),
+    'arena_state_store' => env('ARENA_STATE_CACHE_STORE'),
 
     /*
     |--------------------------------------------------------------------------

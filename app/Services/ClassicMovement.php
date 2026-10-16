@@ -43,6 +43,24 @@ class ClassicMovement
             $nextX = $x + $dx * $distance / $steps;
             $nextY = $y + $dy * $distance / $steps;
             if (! self::isFree($state, $player, $nextX, $nextY)) {
+                $low = 0;
+                $high = 1;
+                for ($search = 0; $search < 16; $search++) {
+                    $middle = ($low + $high) / 2;
+                    if (self::isFree($state, $player, $x + ($nextX - $x) * $middle, $y + ($nextY - $y) * $middle)) {
+                        $low = $middle;
+                    } else {
+                        $high = $middle;
+                    }
+                }
+                if ($dx !== 0) {
+                    $contact = ($x + ($nextX - $x) * $low) * 1_000_000;
+                    $x = ($dx > 0 ? floor($contact) : ceil($contact)) / 1_000_000;
+                }
+                if ($dy !== 0) {
+                    $contact = ($y + ($nextY - $y) * $low) * 1_000_000;
+                    $y = ($dy > 0 ? floor($contact) : ceil($contact)) / 1_000_000;
+                }
                 break;
             }
             $x = $nextX;

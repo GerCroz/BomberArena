@@ -23,7 +23,7 @@ class ArenaInputService
      */
     public function receive(MessageReceived $event): void
     {
-        if (strlen($event->message) > 4096) {
+        if (strlen($event->message) > 16384) {
             return;
         }
         $message = json_decode($event->message, true);
@@ -48,7 +48,13 @@ class ArenaInputService
         if (! is_string($room) || ! preg_match('/^[A-Z0-9]{4,8}$/', $room) || ! is_string($player) || ! preg_match('/^[a-zA-Z0-9_-]{8,64}$/', $player) || ! is_string($round) || ! preg_match('/^[a-f0-9]{32}$/', $round) || ! is_int($sequence) || $sequence < 1 || $sequence > 2147483647) {
             return false;
         }
-        if (! is_string($input['token'] ?? null) || ! hash_equals(self::token($room, $player), $input['token']) || ! array_key_exists('direction', $input) || ! in_array($input['direction'], [null, 'up', 'down', 'left', 'right'], true) || ! is_numeric($input['sampled_at'] ?? null)) {
+        if (! is_string($input['token'] ?? null) || ! hash_equals(self::token($room, $player), $input['token'])) {
+            return false;
+        }
+        if (isset($input['frames'])) {
+            return is_array($input['frames']) && OrderedInputBuffer::put($room, $round, $player, $input['frames'], singleWriter: true);
+        }
+        if (! array_key_exists('direction', $input) || ! in_array($input['direction'], [null, 'up', 'down', 'left', 'right'], true) || ! is_numeric($input['sampled_at'] ?? null)) {
             return false;
         }
         $now = (float) now()->format('U.u');

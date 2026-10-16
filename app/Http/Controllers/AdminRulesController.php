@@ -5,12 +5,12 @@ namespace App\Http\Controllers;
 use App\Models\GameMatchAudit;
 use App\Models\GameRule;
 use App\Models\Room;
+use App\Services\ArenaStateStore;
 use App\Services\GameRulesService;
 use App\Services\RoomService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cache;
 
 class AdminRulesController extends Controller
 {
@@ -223,7 +223,7 @@ class AdminRulesController extends Controller
             ->take(50)
             ->get()
             ->map(function ($r) {
-                $state = Cache::get("arena_state_{$r->code}") ?? $r->game_state;
+                $state = ArenaStateStore::get($r->code) ?? $r->game_state;
                 $alivePlayers = 0;
                 $activeBombs = 0;
                 $elapsedSeconds = 0;

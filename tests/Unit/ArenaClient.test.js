@@ -586,3 +586,14 @@ for (const latency of [30, 150, 300]) {
         }
     });
 }
+
+test('a newer server timestamp delivered late cannot rewind the clock used to timestamp inputs',(t)=>{
+    const originalNow=Date.now;t.after(()=>{Date.now=originalNow;});
+    const client=createClient();client.run('Date.now=()=>1000000;syncServerTime(999.98);');
+    const before=client.run('getCurrentServerTime()');
+    client.run('Date.now=()=>1000100;syncServerTime(1000.00);');
+    assert.ok(client.run('getCurrentServerTime()')>=before+.099999);
+    assert.ok(Math.abs(client.run('serverClockOffset')+20)<.001);
+    client.run('syncServerTime(1000.095);');
+    assert.ok(Math.abs(client.run('serverClockOffset')+5)<.001);
+});

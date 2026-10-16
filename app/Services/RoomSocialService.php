@@ -7,7 +7,6 @@ use App\Events\RoomSocialEvent;
 use App\Models\Room;
 use App\Models\RoomPlayer;
 use Illuminate\Contracts\Cache\LockTimeoutException;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -99,13 +98,25 @@ class RoomSocialService
 
     public function heartbeat(string $code, string $playerId): array
     {
+        $room = Room::where('code', strtoupper($code))->first();
+        if (! $room) {
+            return $this->failure('Sala no encontrada.');
+        }
+        $player = $room->players()->where('player_id', $playerId)->first();
+        if (! $player) {
+            return $this->failure('No perteneces a esta sala.');
+        }
+        $player->update(['last_seen_at' => now()]);
+        $room->update(['last_activity_at' => now()]);
+        if (($room->rematch_request['status'] ?? null) !== 'pending') {
+            return ['success' => true, 'rematch' => $room->rematch_request];
+        }
+
         return $this->locked($code, function (Room $room) use ($playerId): array {
             $player = $room->players()->where('player_id', $playerId)->first();
             if (! $player) {
                 return $this->failure('No perteneces a esta sala.');
             }
-            $player->update(['last_seen_at' => now()]);
-            $room->update(['last_activity_at' => now()]);
             $this->expireVote($room);
 
             return ['success' => true, 'rematch' => $room->rematch_request];
@@ -135,7 +146,7 @@ class RoomSocialService
     public function requestRematch(string $code, string $playerId, ?string $roundId): array
     {
         return $this->locked($code, function (Room $room) use ($playerId, $roundId): array {
-            $state = Cache::get('arena_state_'.$room->code) ?? $room->game_state;
+            $state = ArenaStateStore::get($room->code) ?? $room->game_state;
             if ($room->status !== Room::STATE_FINISHED || empty($state['is_game_over'])) {
                 return $this->failure('La partida debe finalizar antes de pedir revancha.');
             }
@@ -299,7 +310,7 @@ class RoomSocialService
     private function locked(string $code, callable $operation): array
     {
         try {
-            return Cache::lock('arena_lock_'.strtoupper($code), 10)->block(3, function () use ($code, $operation): array {
+            return ArenaStateStore::cache()->lock('arena_lock_'.strtoupper($code), 10)->block(3, function () use ($code, $operation): array {
                 $room = Room::where('code', strtoupper($code))->first();
 
                 return $room ? $operation($room) : $this->failure('Sala no encontrada.');
