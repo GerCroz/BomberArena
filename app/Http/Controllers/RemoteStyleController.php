@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use App\Events\RemoteStyleUpdate;
+use Illuminate\Http\Request;
 
 class RemoteStyleController extends Controller
 {

@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use Illuminate\Http\JsonResponse;
 use App\Models\GameTelemetryLog;
 use App\Models\Room;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class InstructorMonitorController extends Controller
 {
@@ -35,7 +35,7 @@ class InstructorMonitorController extends Controller
             $query->where('id', '>', $sinceId);
         }
 
-        if (!empty($roomCode)) {
+        if (! empty($roomCode)) {
             $query->where('room_code', strtoupper($roomCode));
         }
 
@@ -58,6 +58,7 @@ class InstructorMonitorController extends Controller
     public function clearLogs(): JsonResponse
     {
         GameTelemetryLog::truncate();
+
         return response()->json(['success' => true]);
     }
 }

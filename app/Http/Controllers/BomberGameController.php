@@ -117,6 +117,16 @@ class BomberGameController extends Controller
     }
 
     /**
+     * API: Add bot player to room.
+     */
+    public function addBot(string $code): JsonResponse
+    {
+        $result = $this->roomService->addBot($code);
+
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
+    /**
      * API: Get room state snapshot.
      */
     public function getState(string $code): JsonResponse

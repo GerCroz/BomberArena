@@ -265,11 +265,23 @@
             </div>
 
             <!-- Action buttons -->
-            <div class="flex flex-col sm:flex-row gap-3 justify-center">
+            <div class="flex flex-col sm:flex-row flex-wrap gap-3 justify-center">
                 <button type="button" id="btn-ready-toggle" onclick="toggleReady()"
                     class="arcade-font px-5 py-3 rounded-xl font-bold text-xs sm:text-sm tracking-wider uppercase bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 transition-all flex items-center justify-center gap-2 cursor-pointer">
                     <i data-lucide="check" class="w-4 h-4 text-emerald-400"></i>
                     <span>LISTO: <span id="ready-status-text" class="text-rose-400 font-black">NO</span></span>
+                </button>
+
+                <button type="button" id="btn-add-bot" onclick="addBotPlayer()"
+                    class="arcade-font px-4 py-3 rounded-xl font-bold text-xs sm:text-sm tracking-wider uppercase bg-purple-950/80 hover:bg-purple-900 border border-purple-500/50 text-purple-200 transition-all flex items-center justify-center gap-2 cursor-pointer">
+                    <i data-lucide="bot" class="w-4 h-4 text-purple-400"></i>
+                    <span>🤖 SUMAR BOT</span>
+                </button>
+
+                <button type="button" id="btn-copy-p2" onclick="copyPlayer2Link()"
+                    class="arcade-font px-4 py-3 rounded-xl font-bold text-xs sm:text-sm tracking-wider uppercase bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 transition-all flex items-center justify-center gap-2 cursor-pointer" title="Abrir en otra pestaña para jugar 1v1">
+                    <i data-lucide="user-plus" class="w-4 h-4 text-cyan-400"></i>
+                    <span>LINK 2º JUGADOR</span>
                 </button>
 
                 <button type="button" id="btn-start-game" onclick="startGame()"
@@ -375,11 +387,76 @@
     <script>
         class HapticEngine {
             constructor() {
-                this.enabled = true;
-                this.supported = 'vibrate' in navigator;
+                this.storageKey = 'bomber_arena_haptics_enabled';
+                let saved = null;
+                try {
+                    saved = typeof localStorage !== 'undefined' ? localStorage.getItem(this.storageKey) : null;
+                } catch (_) {}
+                this.enabled = saved !== null ? saved === 'true' : true;
+                this.supported = typeof navigator !== 'undefined' && 'vibrate' in navigator && typeof navigator.vibrate === 'function';
+                this.lastVibratedAt = 0;
             }
+
+            vibrate(pattern) {
+                if (!this.enabled || !this.supported) return;
+                const now = performance.now();
+                if (typeof pattern === 'number' && now - this.lastVibratedAt < 40) return;
+                this.lastVibratedAt = now;
+                try {
+                    navigator.vibrate(pattern);
+                } catch (_) {}
+            }
+
+            // Direction touch/press: 10 ms
+            directionPress() {
+                this.vibrate(10);
+            }
+
+            // Bomb button touch down: 15 ms
+            bombPress() {
+                this.vibrate(15);
+            }
+
+            // Bomb placement confirmed: 20 ms
+            bombConfirmed() {
+                this.vibrate(20);
+            }
+
+            // Local power-up collection: [30, 30, 50] ms
+            powerupCollected() {
+                this.vibrate([30, 30, 50]);
+            }
+
+            // Damage or death: [60, 40, 80] ms
+            damageOrDeath() {
+                this.vibrate([60, 40, 80]);
+            }
+
+            // Backwards-compatible aliases
+            light() {
+                this.directionPress();
+            }
+
+            heavy() {
+                this.bombConfirmed();
+            }
+
+            explosion() {
+                this.damageOrDeath();
+            }
+
+            victory() {
+                this.vibrate([50, 40, 50, 40, 120]);
+            }
+
             toggle() {
                 this.enabled = !this.enabled;
+                try {
+                    if (typeof localStorage !== 'undefined') {
+                        localStorage.setItem(this.storageKey, String(this.enabled));
+                    }
+                } catch (_) {}
+
                 const label = document.getElementById('haptic-label');
                 if (label) {
                     label.innerText = this.enabled ? 'VIB ON' : 'VIB OFF';
@@ -390,23 +467,7 @@
                         ? 'px-2.5 py-1 rounded-xl bg-slate-900 text-[11px] font-bold text-cyan-300 border border-slate-700 flex items-center gap-1 cursor-pointer' 
                         : 'px-2.5 py-1 rounded-xl bg-slate-900 text-[11px] font-bold text-slate-500 border border-slate-700 flex items-center gap-1 cursor-pointer';
                 }
-                if (this.enabled) this.light();
-            }
-            light() {
-                if (!this.enabled || !this.supported) return;
-                try { navigator.vibrate(25); } catch (e) {}
-            }
-            heavy() {
-                if (!this.enabled || !this.supported) return;
-                try { navigator.vibrate(55); } catch (e) {}
-            }
-            explosion() {
-                if (!this.enabled || !this.supported) return;
-                try { navigator.vibrate([70, 30, 90]); } catch (e) {}
-            }
-            victory() {
-                if (!this.enabled || !this.supported) return;
-                try { navigator.vibrate([50, 40, 50, 40, 120]); } catch (e) {}
+                if (this.enabled) this.directionPress();
             }
         }
         const haptics = new HapticEngine();
@@ -471,6 +532,7 @@
         function getCurrentServerTime() {
             return (Date.now() + serverClockOffset) / 1000;
         }
+        window.getCurrentServerTime = getCurrentServerTime;
 
         let currentOrientationMode = 'auto'; // 'auto', 'portrait', 'landscape'
 
@@ -554,6 +616,10 @@
             }
 
             if (currentRoom.status === 'playing' && gameState) {
+                document.getElementById('screen-lobby')?.classList.add('hidden');
+                document.getElementById('screen-game')?.classList.remove('hidden');
+                document.getElementById('gameover-modal')?.classList.add('hidden');
+                if (gameRenderer) gameRenderer.invalidateBoard();
                 startGameLoop();
             }
             if (gameState && gameState.is_game_over) {
@@ -581,6 +647,36 @@
             alert(`Código ${ROOM_CODE} copiado al portapapeles!`);
         }
 
+        async function addBotPlayer() {
+            haptics.light();
+            const btn = document.getElementById('btn-add-bot');
+            if (btn) btn.disabled = true;
+            try {
+                const res = await fetch(`/api/rooms/${ROOM_CODE}/bot`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN }
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    alert(data.error || 'No se pudo sumar el bot');
+                } else {
+                    fetchRoomState();
+                }
+            } catch (err) {
+                console.error(err);
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        function copyPlayer2Link() {
+            const p2Id = 'p_guest_' + Math.random().toString(36).substring(2, 10);
+            const url = `${window.location.origin}/arena/${ROOM_CODE}?player_id=${p2Id}&nickname=Jugador2`;
+            navigator.clipboard.writeText(url);
+            haptics.light();
+            alert(`¡Enlace para 2º jugador copiado! Abrilo en otra pestaña o ventana:\n\n${url}`);
+        }
+
         // Setup Echo WebSocket listener for this room's channel
         function initEcho() {
             if (!window.Echo) {
@@ -595,10 +691,15 @@
                 .listen('.GameEvent', (e) => {
                     handleIncomingEvent(e);
                 });
-            window.Echo.connector?.pusher?.connection?.bind('disconnected', () => resetClassicInput(false));
-            window.Echo.connector?.pusher?.connection?.bind('unavailable', () => resetClassicInput(false));
+            window.Echo.connector?.pusher?.connection?.bind('disconnected', () => {
+                diagnostics.wsConnected = false;
+            });
+            window.Echo.connector?.pusher?.connection?.bind('unavailable', () => {
+                diagnostics.wsConnected = false;
+            });
             window.Echo.connector?.pusher?.connection?.bind('connected', () => {
-                if (classicController) { classicController.connected = true; classicController.discardPending(); sendCurrentInput(true); }
+                diagnostics.wsConnected = true;
+                if (classicController) { classicController.connected = true; sendCurrentInput(true); }
                 fetchRoomState();
             });
             window.Echo.connector?.pusher?.connection?.bind('message', message => {
@@ -613,7 +714,8 @@
 
             if (type === 'game_started') {
                 if (!data.state || (gameState && data.state.started_at < gameState.started_at)) return;
-                if (gameState && data.state.round_id === gameState.round_id && currentRoom.status === 'playing') return;
+                const isGameScreenVisible = !document.getElementById('screen-game')?.classList.contains('hidden');
+                if (isGameScreenVisible && gameState && data.state.round_id === gameState.round_id && currentRoom.status === 'playing') return;
             } else if (data && data.round_id && (!gameState || data.round_id !== gameState.round_id)) {
                 return;
             }
@@ -656,21 +758,19 @@
                         classicController.discardPending();
                         classicController.player = null;
                         classicController.exitedBombs.clear();
-                        classicController.correction = {x:0,y:0};
                         classicController.lastAcknowledged = 0;
                     }
                     lastProcessedVersion = gameState.version || 1;
-                    lastMoveTime = 0;
                     inputSequence = gameState.input_sequences?.[CURRENT_PLAYER_ID] || 0;
                     lastServerTickTime = 0;
                     pendingActionQueue = [];
                     if (gameRenderer) gameRenderer.activeExplosions = [];
                     currentRoom.status = 'playing';
-                    remainingSeconds = data.duration || 180;
+                    remainingSeconds = data.duration || (data.state && data.state.duration_seconds) || 180;
                     if (gameRenderer) gameRenderer.invalidateBoard();
-                    document.getElementById('screen-lobby').classList.add('hidden');
-                    document.getElementById('screen-game').classList.remove('hidden');
-                    document.getElementById('gameover-modal').classList.add('hidden');
+                    document.getElementById('screen-lobby')?.classList.add('hidden');
+                    document.getElementById('screen-game')?.classList.remove('hidden');
+                    document.getElementById('gameover-modal')?.classList.add('hidden');
                     haptics.heavy();
                     const countdownSecs = (data.rules && typeof data.rules.countdown_seconds === 'number')
                         ? data.rules.countdown_seconds : 3;
@@ -698,7 +798,7 @@
                         if (data.collected_powerup) {
                             if (sfx) sfx.playPowerup();
                             if (data.player_id === CURRENT_PLAYER_ID) {
-                                haptics.heavy();
+                                haptics.powerupCollected();
                             }
                             (data.collected_keys || [`${data.x}_${data.y}`]).forEach(key => delete gameState.powerups[key]);
                         }
@@ -718,6 +818,7 @@
                                     delete gameState.bombs[id];
                                 }
                             });
+                            haptics.bombConfirmed();
                         }
                         data.bomb.local_planted_at = performance.now();
                         if (data.bomb.action_id && classicController?.provisionalBombs[data.bomb.action_id]) {
@@ -752,7 +853,6 @@
                                 sfx.playBlockCrumble();
                             }
                         }
-                        haptics.explosion();
 
                         // Destroy blocks in grid state
                         if (data.destroyed_blocks) {
@@ -776,7 +876,7 @@
                                 }
                                 if (sfx) sfx.playElimination();
                                 if (p.player_id === CURRENT_PLAYER_ID) {
-                                    haptics.explosion();
+                                    haptics.damageOrDeath();
                                 }
                             });
                         }
@@ -826,6 +926,17 @@
 
         function applyStateSnapshot(state) {
             if (!state) return;
+            const screenGame = document.getElementById('screen-game');
+            if (screenGame && screenGame.classList.contains('hidden') && (currentRoom.status === 'playing' || (state && !state.is_game_over))) {
+                document.getElementById('screen-lobby')?.classList.add('hidden');
+                screenGame.classList.remove('hidden');
+                document.getElementById('gameover-modal')?.classList.add('hidden');
+                if (gameRenderer) gameRenderer.invalidateBoard();
+                if (typeof checkAutoOrientation === 'function') checkAutoOrientation();
+                if (!timerInterval) {
+                    startGameLoop();
+                }
+            }
             if (!gameState || state.round_id !== gameState.round_id) {
                 handleIncomingEvent({ type: 'game_started', data: { state: { ...state, is_game_over: false }, rules: state.rules, duration: state.duration_seconds } });
                 if (state.is_game_over && gameState.round_id === state.round_id) applyStateSnapshot(state);
@@ -906,7 +1017,8 @@
                 startBtn.classList.add('hidden');
             } else {
                 startBtn.classList.remove('hidden');
-                const canStart = currentRoom.players.length >= 2;
+                const minRequired = @json(app()->environment('local')) ? 1 : 2;
+                const canStart = currentRoom.players.length >= minRequired;
                 startBtn.disabled = !canStart;
                 if (!canStart) {
                     warning.innerText = 'Se requieren al menos 2 jugadores para comenzar la partida.';
@@ -924,10 +1036,11 @@
         async function toggleReady() {
             haptics.light();
             try {
-                await fetch(`/api/rooms/${ROOM_CODE}/ready`, {
+                const res = await fetch(`/api/rooms/${ROOM_CODE}/ready`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN }
                 });
+                if (res.ok) fetchRoomState();
             } catch (err) {
                 console.error(err);
             }
@@ -936,7 +1049,7 @@
         async function startGame() {
             haptics.heavy();
             const btn = document.getElementById('btn-start-game');
-            btn.disabled = true;
+            if (btn) btn.disabled = true;
             try {
                 const res = await fetch(`/api/rooms/${ROOM_CODE}/start`, {
                     method: 'POST',
@@ -945,13 +1058,22 @@
                 const data = await res.json();
                 if (!data.success) {
                     alert(data.error || 'No se pudo iniciar');
-                    btn.disabled = false;
+                    if (btn) btn.disabled = false;
                 } else {
-                    handleIncomingEvent({ type: 'game_started', data: { state: data.state, server_time: data.server_time, rules: data.state.rules, duration: data.state.duration_seconds } });
+                    currentRoom.status = 'playing';
+                    handleIncomingEvent({
+                        type: 'game_started',
+                        data: {
+                            state: data.state,
+                            server_time: data.server_time,
+                            rules: data.state?.rules,
+                            duration: data.state?.duration_seconds
+                        }
+                    });
                 }
             } catch (err) {
                 console.error(err);
-                btn.disabled = false;
+                if (btn) btn.disabled = false;
             }
         }
 
@@ -1026,111 +1148,126 @@
                 chip.className = `flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] border whitespace-nowrap ${p.alive ? 'bg-slate-900 border-slate-700 text-white' : 'bg-red-950/60 border-red-500/40 text-slate-500 opacity-60'}`;
                 
                 const miniAvatar = window.BomberEngine ? window.BomberEngine.getCharacterSVG(p.color, 18) : '';
+                const bombs = p.bombs_placed || 0;
+                const kills = p.kills || 0;
+                const score = (kills * 100) + (bombs * 10) + ((p.powerups_collected || 0) * 25);
                 chip.innerHTML = `
                     <span class="inline-flex shrink-0">${miniAvatar}</span>
                     <span class="font-bold">${escapeHtml(p.nickname)}</span>
-                    <span class="text-cyan-400 font-mono">(${p.kills}k)</span>
+                    <span class="text-amber-400 font-mono text-[10px]" title="Bombas colocadas">💣${bombs}</span>
+                    <span class="text-cyan-400 font-mono text-[10px]" title="Bajas">💀${kills}</span>
+                    <span class="text-emerald-400 font-mono text-[10px] font-bold" title="Puntos">${score}pts</span>
                 `;
                 container.appendChild(chip);
             });
         }
 
         // Keyboard Controls
-        let lastMoveTime = 0;
-        const heldDirections = new Map();
-        let walkingDirection = null;
-        let walkRefreshInterval = null;
-        let visualPrediction = null;
-
-        function previewStep(direction) {
-            const me = gameState?.players?.[CURRENT_PLAYER_ID];
-            const delta = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[direction];
-            if (!me?.alive || !delta) return;
-            const x = me.x + delta[0], y = me.y + delta[1];
-            if (canMoveTo(x, y)) visualPrediction = { x, y, sequence: inputSequence + 1, expiresAt: performance.now() + 1000, acknowledgedTick: null };
-        }
-
-        function reconcileVisualPrediction() {
-            if (!visualPrediction) return;
-            const me = gameState?.players?.[CURRENT_PLAYER_ID];
-            if (!me?.alive || gameState.is_game_over || performance.now() > visualPrediction.expiresAt || (me.x === visualPrediction.x && me.y === visualPrediction.y)) {
-                visualPrediction = null;
-                return;
-            }
-            if ((gameState.input_sequences?.[CURRENT_PLAYER_ID] || 0) >= visualPrediction.sequence) {
-                visualPrediction.acknowledgedTick ??= gameState.tick || 0;
-                if ((gameState.tick || 0) > visualPrediction.acknowledgedTick) visualPrediction = null;
-            }
-            if (visualPrediction && !canMoveTo(visualPrediction.x, visualPrediction.y)) visualPrediction = null;
-        }
-
-        function beginWalk(inputDirection) {
-            if (!gameState?.players?.[CURRENT_PLAYER_ID]?.alive || currentRoom.status !== 'playing' || isCountingDown) return;
-            const direction = gameRenderer ? gameRenderer.screenToLogicalDir(inputDirection) : inputDirection;
-            if (walkingDirection === direction) return;
-            walkingDirection = direction;
-            previewStep(direction);
-            enqueueAction({ type: 'move', direction });
-            if (walkRefreshInterval) clearInterval(walkRefreshInterval);
-            const repeatAfter = performance.now() + 300;
-            walkRefreshInterval = setInterval(() => {
-                if (walkingDirection && performance.now() >= repeatAfter && !isFlushingActions && pendingActionQueue.length === 0) {
-                    previewStep(walkingDirection);
-                    enqueueAction({ type: 'move', direction: walkingDirection, _repeat: true });
-                }
-            }, movementIntervalMs());
-        }
-
-        function endWalk() {
-            if (walkRefreshInterval) clearInterval(walkRefreshInterval);
-            walkRefreshInterval = null;
-            pendingActionQueue = pendingActionQueue.filter(action => !action._repeat);
-            walkingDirection = null;
-        }
+        // Keyboard Controls - Discrete Grid Movement
+        const activeMovementKeys = new Set();
+        let spacePressed = false;
 
         function initKeyboard() {
             if (keyboardInitialized) return;
             keyboardInitialized = true;
+
             window.addEventListener('keydown', (e) => {
                 if (!gameState || currentRoom.status !== 'playing') return;
-                const now = performance.now();
+
+                // Rule 3: Ignorar eventos keydown repetidos por el sistema operativo
+                if (e.repeat) {
+                    e.preventDefault();
+                    return;
+                }
 
                 let dir = null;
-                if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') dir = 'up';
-                if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') dir = 'down';
-                if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') dir = 'left';
-                if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') dir = 'right';
+                if (e.code === 'ArrowUp' || e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') dir = 'up';
+                else if (e.code === 'ArrowDown' || e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') dir = 'down';
+                else if (e.code === 'ArrowLeft' || e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') dir = 'left';
+                else if (e.code === 'ArrowRight' || e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') dir = 'right';
 
                 if (dir) {
                     e.preventDefault();
-                    if (classicController && gameState.movement_model === 'classic-v2') {
-                        if (!isCountingDown && gameState.players[CURRENT_PLAYER_ID]?.alive && classicController.press(e.code || e.key, gameRenderer ? gameRenderer.screenToLogicalDir(dir) : dir)) sendCurrentInput(true);
-                        return;
+                    const keyId = e.code || e.key;
+                    // Rule 2: Mantener tecla NO genera movimientos adicionales
+                    if (activeMovementKeys.has(keyId)) return;
+                    activeMovementKeys.add(keyId);
+
+                    if (!isCountingDown && gameState.players[CURRENT_PLAYER_ID]?.alive) {
+                        const logicalDir = gameRenderer ? gameRenderer.screenToLogicalDir(dir) : dir;
+                        if (classicController) {
+                            if (classicController.press(keyId, logicalDir)) {
+                                haptics.directionPress();
+                                sendCurrentInput(true);
+                            }
+                        }
                     }
-                    if (heldDirections.has(e.key)) return;
-                    heldDirections.set(e.key, dir);
-                    beginWalk(dir);
-                } else if (e.code === 'Space') {
-                    e.preventDefault();
-                    if (e.repeat) return;
-                    sendBomb();
-                }
-            });
-            window.addEventListener('keyup', e => {
-                if (classicController && gameState?.movement_model === 'classic-v2') {
-                    if (classicController.release(e.code || e.key)) sendCurrentInput(true);
                     return;
                 }
-                if (!heldDirections.delete(e.key)) return;
-                const direction = [...heldDirections.values()].at(-1);
-                if (direction) beginWalk(direction);
-                else endWalk();
+
+                // Fase 4: Barra espaciadora - registrar que comenzó la pulsación
+                if (e.code === 'Space' || e.key === ' ') {
+                    e.preventDefault();
+                    spacePressed = true;
+                }
             });
-            window.addEventListener('blur', () => { heldDirections.clear(); endWalk(); resetClassicInput(true); });
-            window.addEventListener('focus', () => { if (classicController) classicController.lastFrame = null; });
+
+            window.addEventListener('keyup', (e) => {
+                let dir = null;
+                if (e.code === 'ArrowUp' || e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') dir = 'up';
+                else if (e.code === 'ArrowDown' || e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') dir = 'down';
+                else if (e.code === 'ArrowLeft' || e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') dir = 'left';
+                else if (e.code === 'ArrowRight' || e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') dir = 'right';
+
+                if (dir) {
+                    const keyId = e.code || e.key;
+                    activeMovementKeys.delete(keyId);
+                    if (classicController) {
+                        classicController.release(keyId);
+                    }
+                    return;
+                }
+
+                // Fase 4: La bomba se coloca al SOLTAR la barra espaciadora, no al presionarla
+                if (e.code === 'Space' || e.key === ' ') {
+                    e.preventDefault();
+                    if (spacePressed) {
+                        spacePressed = false;
+                        sendBomb();
+                    }
+                }
+            });
+
+            window.addEventListener('blur', () => {
+                // No colocar bomba si se pierde el foco; limpiar teclas activas
+                spacePressed = false;
+                activeMovementKeys.clear();
+                if (classicController) {
+                    classicController.clear();
+                    resetClassicInput(true);
+                }
+            });
+
+            window.addEventListener('focus', () => {
+                if (classicController) classicController.lastFrame = null;
+            });
+
             window.addEventListener('offline', () => resetClassicInput(false));
-            window.addEventListener('online', () => { if (classicController) { classicController.connected = true; classicController.discardPending(); fetchRoomState(); } });
-            document.addEventListener('visibilitychange', () => { if (document.hidden) resetClassicInput(true); });
+            window.addEventListener('online', () => {
+                if (classicController) {
+                    classicController.connected = true;
+                    classicController.discardPending();
+                    fetchRoomState();
+                }
+            });
+
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    spacePressed = false;
+                    activeMovementKeys.clear();
+                    resetClassicInput(true);
+                }
+            });
         }
 
         // Check if a tile can be stepped on locally
@@ -1275,7 +1412,11 @@
             }
         }
 
-        // Ergonomic Mobile Touch Controls with Haptics and Hold-to-walk
+        // Ergonomic Mobile Touch Controls with Haptics - Discrete Grid Movement
+        let touchBombPressed = false;
+        let touchBombPointerId = null;
+        const activeTouchDirections = new Map();
+
         function initTouchControls() {
             if (touchInitialized) return;
             touchInitialized = true;
@@ -1284,62 +1425,141 @@
             directions.forEach(dir => {
                 const btn = document.getElementById(`dpad-${dir}`);
                 if (!btn) return;
-                if (classicController && typeof PointerEvent !== 'undefined') {
-                    btn.addEventListener('pointerdown', e => {
+
+                if (typeof PointerEvent !== 'undefined') {
+                    btn.addEventListener('pointerdown', (e) => {
                         e.preventDefault();
+                        e.stopPropagation();
                         if (isCountingDown || currentRoom.status !== 'playing' || !gameState?.players?.[CURRENT_PLAYER_ID]?.alive) return;
-                        btn.setPointerCapture(e.pointerId);
-                        if (classicController.press('pointer:'+e.pointerId, gameRenderer ? gameRenderer.screenToLogicalDir(dir) : dir)) sendCurrentInput(true);
+                        if (activeTouchDirections.has(e.pointerId)) return;
+
+                        activeTouchDirections.set(e.pointerId, dir);
+                        try { btn.setPointerCapture(e.pointerId); } catch (_) {}
+                        btn.classList.add('is-active');
+
+                        // Fase 6: Pulsación de dirección: 10 ms
+                        haptics.directionPress();
+
+                        const logicalDir = gameRenderer ? gameRenderer.screenToLogicalDir(dir) : dir;
+                        if (classicController) {
+                            if (classicController.press('pointer:' + e.pointerId, logicalDir)) {
+                                sendCurrentInput(true);
+                            }
+                        }
                     });
-                    const release = e => { if (classicController.release('pointer:'+e.pointerId)) sendCurrentInput(true); };
-                    btn.addEventListener('pointerup', release);
-                    btn.addEventListener('pointercancel', release);
-                    btn.addEventListener('lostpointercapture', release);
-                    return;
+
+                    const releaseDir = (e) => {
+                        if (!activeTouchDirections.has(e.pointerId)) return;
+                        activeTouchDirections.delete(e.pointerId);
+                        btn.classList.remove('is-active');
+                        try { btn.releasePointerCapture(e.pointerId); } catch (_) {}
+                        if (classicController) {
+                            classicController.release('pointer:' + e.pointerId);
+                        }
+                    };
+
+                    btn.addEventListener('pointerup', releaseDir);
+                    btn.addEventListener('pointercancel', releaseDir);
+                    btn.addEventListener('lostpointercapture', releaseDir);
+                } else {
+                    // Fallback for browsers without Pointer Events
+                    btn.addEventListener('touchstart', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (isCountingDown || currentRoom.status !== 'playing' || !gameState?.players?.[CURRENT_PLAYER_ID]?.alive) return;
+                        btn.classList.add('is-active');
+                        haptics.directionPress();
+                        const logicalDir = gameRenderer ? gameRenderer.screenToLogicalDir(dir) : dir;
+                        if (classicController) {
+                            if (classicController.press('touch:' + dir, logicalDir)) {
+                                sendCurrentInput(true);
+                            }
+                        }
+                    }, { passive: false });
+
+                    const endTouch = (e) => {
+                        e.preventDefault();
+                        btn.classList.remove('is-active');
+                        if (classicController) {
+                            classicController.release('touch:' + dir);
+                        }
+                    };
+                    btn.addEventListener('touchend', endTouch, { passive: false });
+                    btn.addEventListener('touchcancel', endTouch, { passive: false });
                 }
 
-                const startPress = (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    btn.classList.add('is-active');
-                    haptics.light();
-                    beginWalk(dir);
-                };
-
-                const endPress = (e) => {
-                    e.preventDefault();
-                    btn.classList.remove('is-active');
-                    endWalk();
-                };
-
-                btn.addEventListener('touchstart', startPress, { passive: false });
-                btn.addEventListener('touchend', endPress, { passive: false });
-                btn.addEventListener('touchcancel', endPress, { passive: false });
-                btn.addEventListener('mousedown', startPress);
-                btn.addEventListener('mouseup', endPress);
-                btn.addEventListener('mouseleave', endPress);
+                btn.addEventListener('contextmenu', e => e.preventDefault());
             });
 
-            // Bomb Button Press
+            // Bomb Button: Fase 5 & Fase 7 - La bomba se coloca al SOLTAR el botón
             const bombBtn = document.getElementById('dpad-bomb');
             if (bombBtn) {
-                const triggerBomb = (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    bombBtn.classList.add('is-active');
-                    sendBomb();
-                };
-                const releaseBomb = (e) => {
-                    e.preventDefault();
-                    bombBtn.classList.remove('is-active');
-                };
+                if (typeof PointerEvent !== 'undefined') {
+                    bombBtn.addEventListener('pointerdown', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (isCountingDown || currentRoom.status !== 'playing' || !gameState?.players?.[CURRENT_PLAYER_ID]?.alive) return;
 
-                bombBtn.addEventListener('touchstart', triggerBomb, { passive: false });
-                bombBtn.addEventListener('touchend', releaseBomb, { passive: false });
-                bombBtn.addEventListener('touchcancel', releaseBomb, { passive: false });
-                bombBtn.addEventListener('mousedown', triggerBomb);
-                bombBtn.addEventListener('mouseup', releaseBomb);
-                bombBtn.addEventListener('mouseleave', releaseBomb);
+                        touchBombPressed = true;
+                        touchBombPointerId = e.pointerId;
+                        try { bombBtn.setPointerCapture(e.pointerId); } catch (_) {}
+                        bombBtn.classList.add('is-active');
+
+                        // Fase 6: Pulsación del botón de bomba: 15 ms (NO coloca bomba aquí)
+                        haptics.bombPress();
+                    });
+
+                    bombBtn.addEventListener('pointerup', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        bombBtn.classList.remove('is-active');
+                        try { bombBtn.releasePointerCapture(e.pointerId); } catch (_) {}
+
+                        if (touchBombPressed && touchBombPointerId === e.pointerId) {
+                            touchBombPressed = false;
+                            touchBombPointerId = null;
+                            // Colocación al soltar el botón táctil
+                            sendBomb();
+                        }
+                    });
+
+                    const cancelBombTouch = (e) => {
+                        bombBtn.classList.remove('is-active');
+                        try { bombBtn.releasePointerCapture(e.pointerId); } catch (_) {}
+                        // Si el gesto se cancela, NO colocar la bomba
+                        touchBombPressed = false;
+                        touchBombPointerId = null;
+                    };
+
+                    bombBtn.addEventListener('pointercancel', cancelBombTouch);
+                    bombBtn.addEventListener('lostpointercapture', cancelBombTouch);
+                } else {
+                    // Fallback for pure touch
+                    bombBtn.addEventListener('touchstart', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (isCountingDown || currentRoom.status !== 'playing' || !gameState?.players?.[CURRENT_PLAYER_ID]?.alive) return;
+                        touchBombPressed = true;
+                        bombBtn.classList.add('is-active');
+                        haptics.bombPress();
+                    }, { passive: false });
+
+                    bombBtn.addEventListener('touchend', (e) => {
+                        e.preventDefault();
+                        bombBtn.classList.remove('is-active');
+                        if (touchBombPressed) {
+                            touchBombPressed = false;
+                            sendBomb();
+                        }
+                    }, { passive: false });
+
+                    bombBtn.addEventListener('touchcancel', (e) => {
+                        bombBtn.classList.remove('is-active');
+                        touchBombPressed = false;
+                    }, { passive: false });
+                }
+
+                bombBtn.addEventListener('contextmenu', e => e.preventDefault());
             }
         }
 
@@ -1348,50 +1568,34 @@
             const me = gameState.players[CURRENT_PLAYER_ID];
             if (!me || !me.alive) return;
 
-            if (gameState.input_protocol === 3) {
-                const actionId = 'bomb_' + crypto.randomUUID().replaceAll('-', '');
-                if (classicController.queueBomb(actionId, getCurrentServerTime())) {
-                    if (sfx) sfx.playBombDrop();
-                    haptics.heavy();
-                    sendCurrentInput(true);
-                }
-                return;
-            }
-
-            // Check active bomb count limit locally
-            let activeBombs = 0;
-            if (gameState.bombs) {
-                for (const b of Object.values(gameState.bombs)) {
-                    if (b.owner_id === CURRENT_PLAYER_ID) activeBombs++;
-                }
-            }
-            const maxAllowed = me.max_bombs || 1;
-            if (activeBombs >= maxAllowed) {
-                haptics.light();
-                return;
-            }
-
-            // Check if there is already a bomb on player's current tile
-            if (gameState.bombs) {
-                for (const b of Object.values(gameState.bombs)) {
-                    if (b.x === me.x && b.y === me.y) {
-                        return;
-                    }
-                }
-            }
-
-            // Squash recoil visual effect
+            // Recoil animation
             me.isPlacingBomb = true;
             setTimeout(() => { me.isPlacingBomb = false; }, 180);
 
-            // Correlate the command with its confirmation.
-            const tempId = 'opt_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+            const actionId = 'bomb_' + crypto.randomUUID().replaceAll('-', '');
+            const serverTime = getCurrentServerTime();
 
-            if (sfx) sfx.playBombDrop();
-            haptics.heavy();
+            if (classicController) {
+                if (classicController.queueBomb(actionId, serverTime)) {
+                    if (sfx) sfx.playBombDrop();
+                    sendCurrentInput(true);
+                    return;
+                }
+            }
 
-            // Enqueue bomb action in batch pipeline
-            enqueueAction({ type: 'bomb', temp_id: tempId });
+            // Fallback: Direct authoritative HTTP bomb endpoint
+            try {
+                fetch(`/api/rooms/${ROOM_CODE}/bomb`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN }
+                }).then(res => res.json()).then(data => {
+                    if (data.success && data.bomb) {
+                        if (sfx) sfx.playBombDrop();
+                        handleIncomingEvent({ type: 'bomb_placed', data: { bomb: data.bomb } });
+                        fetchRoomState();
+                    }
+                }).catch(err => console.error(err));
+            } catch (err) {}
         }
 
         async function requestRematch() {
@@ -1533,12 +1737,7 @@
             if (classicController) classicController.clear();
             for (const request of inputRequests.values()) request.abort();
             inputRequests.clear();
-            visualPrediction = null;
             if (gameRenderer) gameRenderer.localPreview = null;
-            if (walkRefreshInterval) clearInterval(walkRefreshInterval);
-            walkRefreshInterval = null;
-            walkingDirection = null;
-            heldDirections.clear();
             if (animFrameId) cancelAnimationFrame(animFrameId);
             animFrameId = null;
             if (timerInterval) clearInterval(timerInterval);
@@ -1549,7 +1748,7 @@
             serverTickInterval = null;
             isCountingDown = false;
             pendingActionQueue = [];
-            document.getElementById('countdown-overlay').classList.add('hidden');
+            document.getElementById('countdown-overlay')?.classList.add('hidden');
         }
 
         function startGameLoop() {
@@ -1561,7 +1760,7 @@
             serverTickInterval = setInterval(() => {
                 if (!gameState || gameState.is_game_over || currentRoom.status !== 'playing') return;
                 const now = performance.now();
-                const tickInterval = 1000;
+                const tickInterval = diagnostics.wsConnected ? 1500 : 500;
                 if (now - lastServerTickTime >= tickInterval) {
                     lastServerTickTime = now;
                     sendServerTick();
@@ -1573,24 +1772,23 @@
                 const curServerTime = getCurrentServerTime();
 
                 if (gameRenderer) {
-                    if (classicController && gameState.movement_model === 'classic-v2') {
+                    if (classicController) {
                         const preview = classicController.update(gameState, CURRENT_PLAYER_ID, performance.now(), curServerTime);
                         gameRenderer.localPreview = preview;
                         if (classicController.needsResync) {
                             classicController.needsResync = false;
                             fetchRoomState();
                         }
-                        if (classicController.ordered && classicController.connected && gameState.players[CURRENT_PLAYER_ID]?.alive && classicController.direction === null && !classicController.pending.length && performance.now()-lastInputSentAt>=1000) {
-                            classicController.frame(0,null);
+                        if (classicController.ordered && gameState.players[CURRENT_PLAYER_ID]?.alive && classicController.direction === null && !classicController.pending.length && performance.now() - lastInputSentAt >= 1500) {
+                            classicController.frame(0, null);
                         }
-                        if ((classicController.direction !== null || classicController.pending.length) && performance.now() - lastInputSentAt >= 100) sendCurrentInput();
-                    } else {
-                    reconcileVisualPrediction();
-                    gameRenderer.localPreview = visualPrediction ? { id: CURRENT_PLAYER_ID, x: visualPrediction.x, y: visualPrediction.y } : null;
+                        if (classicController.pending.length && performance.now() - lastInputSentAt >= 250) {
+                            sendCurrentInput();
+                        }
                     }
                     gameRenderer.diagnostics = diagnosticsEnabled ? { ...diagnostics, room: ROOM_CODE, pressed: classicController?.direction, sequence: classicController?.sequence, acknowledged: gameState.input_ack?.[CURRENT_PLAYER_ID] || 0, pending: classicController?.ordered ? classicController.pending.length : inputRequests.size, prediction_error: classicController?.positionError, bomb_confirmation_ms: classicController?.bombConfirmationMs, connection: classicController?.connected ? 'conectado' : 'desconectado', corrections: classicController?.corrections ?? diagnostics.corrections } : null;
                     const provisional = classicController?.ordered ? classicController.provisionalBombs : {};
-                    const renderState = Object.keys(provisional).length ? {...gameState,bombs:{...provisional,...gameState.bombs}} : gameState;
+                    const renderState = Object.keys(provisional).length ? { ...gameState, bombs: { ...provisional, ...gameState.bombs } } : gameState;
                     gameRenderer.render(renderState, CURRENT_PLAYER_ID, performance.now() / 1000, curServerTime);
                 }
                 animFrameId = requestAnimationFrame(loop);
@@ -1603,7 +1801,7 @@
             classicController.clear();
             if (!notify) {
                 inputPingTimes.length = 0;
-                classicController.connected = false; classicController.discardPending(); pendingActionQueue = [];
+                classicController.discardPending(); pendingActionQueue = [];
                 if (actionRequestController) actionRequestController.abort();
                 for (const request of inputRequests.values()) request.abort();
                 inputRequests.clear();
@@ -1612,7 +1810,7 @@
         }
 
         async function sendCurrentInput(force = false) {
-            if (!classicController?.connected || !gameState?.players?.[CURRENT_PLAYER_ID]?.alive || gameState.is_game_over || currentRoom.status !== 'playing' || isCountingDown) return;
+            if (!classicController || !gameState?.players?.[CURRENT_PLAYER_ID]?.alive || gameState.is_game_over || currentRoom.status !== 'playing' || isCountingDown) return;
             if (inputRequests.size >= 2) {
                 if (!force) return;
                 const oldest = inputRequests.keys().next().value;
@@ -1628,9 +1826,9 @@
             if (INPUT_TOKEN && connection?.state === 'connected') {
                 inputPingTimes.push(performance.now());
                 if (inputPingTimes.length > 24) inputPingTimes.shift();
-                connection.send_event('pusher:ping', { arena_input: { room: ROOM_CODE, player: CURRENT_PLAYER_ID, token: INPUT_TOKEN, round_id: gameState.round_id, sequence, direction, sampled_at: getCurrentServerTime(), ...(frames ? {frames} : {}) } });
-                lastInputSentAt = performance.now();
-                return;
+                try {
+                    connection.send_event('pusher:ping', { arena_input: { room: ROOM_CODE, player: CURRENT_PLAYER_ID, token: INPUT_TOKEN, round_id: gameState.round_id, sequence, direction, sampled_at: getCurrentServerTime(), ...(frames ? {frames} : {}) } });
+                } catch (_) {}
             }
             const request = new AbortController();
             inputRequests.set(sequence, request);
@@ -1656,7 +1854,6 @@
 
         async function sendServerTick() {
             if (serverTickInFlight || !gameState || gameState.is_game_over) return;
-            if (gameState.input_protocol === 3 && window.Echo?.connector?.pusher?.connection?.state === 'connected' && performance.now()-diagnostics.lastReceived < 1500) return;
             serverTickInFlight = true;
             const generation = roundGeneration;
             const requestStarted = performance.now();

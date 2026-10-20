@@ -8,6 +8,7 @@ use Illuminate\Support\Str;
 class PlayerIdentityService
 {
     public const COOKIE_NAME = 'bomber_player_id';
+
     public const NICKNAME_COOKIE = 'bomber_player_nickname';
 
     /**
@@ -15,15 +16,15 @@ class PlayerIdentityService
      */
     public function getOrCreatePlayerId(Request $request): string
     {
-        $playerId = $request->cookie(self::COOKIE_NAME) 
-            ?? $request->header('X-Player-ID') 
-            ?? $request->input('player_id');
+        $playerId = $request->header('X-Player-ID')
+            ?? $request->input('player_id')
+            ?? $request->cookie(self::COOKIE_NAME);
 
-        if (!empty($playerId) && is_string($playerId) && preg_match('/^[a-zA-Z0-9_\-]{8,64}$/', $playerId)) {
+        if (! empty($playerId) && is_string($playerId) && preg_match('/^[a-zA-Z0-9_\-]{8,64}$/', $playerId)) {
             return $playerId;
         }
 
-        return 'p_' . Str::random(24);
+        return 'p_'.Str::random(24);
     }
 
     /**
@@ -31,12 +32,13 @@ class PlayerIdentityService
      */
     public function getNickname(Request $request, ?string $fallback = null): string
     {
-        $nick = $request->input('nickname') 
-            ?? $request->cookie(self::NICKNAME_COOKIE) 
-            ?? $fallback 
-            ?? ('Piloto_' . rand(100, 999));
+        $nick = $request->input('nickname')
+            ?? $request->cookie(self::NICKNAME_COOKIE)
+            ?? $fallback
+            ?? ('Piloto_'.rand(100, 999));
 
         $clean = trim(strip_tags((string) $nick));
-        return substr($clean, 0, 20) ?: ('Piloto_' . rand(100, 999));
+
+        return substr($clean, 0, 20) ?: ('Piloto_'.rand(100, 999));
     }
 }
