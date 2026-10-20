@@ -26,9 +26,13 @@ class OrderedInputBuffer
             if (! is_array($frame) || ! is_int($frame['sequence'] ?? null) || $frame['sequence'] < 1 || $frame['sequence'] > 2147483647
                 || ! is_numeric($frame['duration'] ?? null) || ! is_finite((float) $frame['duration']) || $frame['duration'] < 0 || $frame['duration'] > 0.050001
                 || ! array_key_exists('direction', $frame) || ! in_array($frame['direction'], [null, 'up', 'down', 'left', 'right'], true)
-                || ! is_numeric($frame['sampled_at'] ?? null) || ! is_finite((float) $frame['sampled_at']) || $frame['sampled_at'] > $now + 0.1
+                || ! is_numeric($frame['sampled_at'] ?? null) || ! is_finite((float) $frame['sampled_at']) || $frame['sampled_at'] > $now + 2.0
                 || (isset($frame['action_id']) && (! is_string($frame['action_id']) || ! preg_match('/^[a-zA-Z0-9_-]{8,64}$/', $frame['action_id'])))
-                || (isset($frame['reset']) && (! is_bool($frame['reset']) || ($frame['reset'] && ($frame['direction'] !== null || $frame['duration'] != 0 || isset($frame['action_id'])))))) {
+                || (isset($frame['reset']) && (! is_bool($frame['reset']) || ($frame['reset'] && ($frame['direction'] !== null || $frame['duration'] != 0 || isset($frame['action_id'])))))
+                || (isset($frame['to_x']) && (! is_int($frame['to_x']) || $frame['to_x'] < 0 || $frame['to_x'] >= 13))
+                || (isset($frame['to_y']) && (! is_int($frame['to_y']) || $frame['to_y'] < 0 || $frame['to_y'] >= 11))
+                || (isset($frame['from_x']) && (! is_int($frame['from_x']) || $frame['from_x'] < 0 || $frame['from_x'] >= 13))
+                || (isset($frame['from_y']) && (! is_int($frame['from_y']) || $frame['from_y'] < 0 || $frame['from_y'] >= 11))) {
                 return false;
             }
         }
@@ -47,7 +51,7 @@ class OrderedInputBuffer
         $write = function () use ($store, $key, $frames, &$stored): void {
             $pending = $store->get($key, []);
             foreach ($frames as $frame) {
-                $pending[$frame['sequence']] ??= array_intersect_key($frame, array_flip(['sequence', 'duration', 'direction', 'sampled_at', 'action_id', 'reset']));
+                $pending[$frame['sequence']] ??= array_intersect_key($frame, array_flip(['sequence', 'duration', 'direction', 'sampled_at', 'action_id', 'reset', 'to_x', 'to_y', 'from_x', 'from_y']));
             }
             ksort($pending, SORT_NUMERIC);
             $store->put($key, array_slice($pending, -24, null, true), 2);

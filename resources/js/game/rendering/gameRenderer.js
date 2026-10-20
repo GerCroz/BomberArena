@@ -190,7 +190,7 @@ export class GameRenderer {
                 const old = this.displayPos.get(player.id);
                 const distance = old ? Math.abs(old.x - target.x) + Math.abs(old.y - target.y) : 0;
                 const diagonal = old && Math.abs(old.x - target.x) > 1 && Math.abs(old.y - target.y) > 1;
-                const next = preview?.continuous || !old || !player.alive || diagonal || distance > ts + 1 || gameState.rules?.remote_interpolation === false
+                const next = preview || !old || !player.alive || diagonal || distance > ts + 1 || gameState.rules?.remote_interpolation === false
                     ? target : { x: old.x + (target.x - old.x) * lerp, y: old.y + (target.y - old.y) * lerp };
                 next.targetX = target.x;
                 next.targetY = target.y;
@@ -203,7 +203,11 @@ export class GameRenderer {
             for (let i = 0; i < living.length; i++) {
                 for (let j = i + 1; j < living.length; j++) {
                     const a = candidates.get(living[i].id), b = candidates.get(living[j].id);
-                    if (gameState.rules?.player_collisions !== false && Math.abs(a.x - b.x) < ts * 0.7 && Math.abs(a.y - b.y) < ts * 0.7) conflict = true;
+                    if (gameState.rules?.player_collisions !== false && Math.abs(a.x - b.x) < ts * 0.7 && Math.abs(a.y - b.y) < ts * 0.7) {
+                        if (living[i].id !== currentUserId && living[j].id !== currentUserId) {
+                            conflict = true;
+                        }
+                    }
                 }
             }
             if (conflict) {

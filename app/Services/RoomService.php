@@ -22,16 +22,20 @@ class RoomService
 
     protected GameRulesService $rulesService;
 
+    protected BomberBotService $botService;
+
     public const COLORS = ['neon-blue', 'neon-pink', 'neon-yellow', 'neon-green'];
 
     public function __construct(
         BomberGameEngine $engine,
         GameTelemetryService $telemetry,
-        GameRulesService $rulesService
+        GameRulesService $rulesService,
+        BomberBotService $botService
     ) {
         $this->engine = $engine;
         $this->telemetry = $telemetry;
         $this->rulesService = $rulesService;
+        $this->botService = $botService;
     }
 
     /**
@@ -195,6 +199,29 @@ class RoomService
         return ['success' => true, 'room' => $room->load('players'), 'player' => $player];
     }
 
+    public function addBot(string $code): array
+    {
+        $room = Room::where('code', strtoupper($code))->first();
+        if (! $room || $room->isFull()) {
+            return ['success' => false, 'error' => 'La sala está completa o no existe'];
+        }
+
+        $botId = 'bot_'.Str::lower(Str::random(12));
+        $botNames = ['🤖 CyberBot', '🤖 MechaBomber', '🤖 RoboSpark', '🤖 NanoBlast'];
+        $name = $botNames[array_rand($botNames)];
+
+        $res = $this->joinRoom($code, $botId, $name);
+        if ($res['success'] && isset($res['player'])) {
+            $res['player']->update(['is_ready' => true]);
+            $this->broadcastGameEvent(new GameRoomEvent($room->code, 'player_ready', [
+                'player_id' => $botId,
+                'is_ready' => true,
+            ]));
+        }
+
+        return $res;
+    }
+
     /**
      * Toggle player ready status and update state machine (WAITING <-> READY).
      */
@@ -271,7 +298,7 @@ class RoomService
 
         // Fetch active rules snapshot at game launch
         $rulesSnapshot = $this->rulesService->getActiveRules();
-        $minPlayers = (int) ($rulesSnapshot['min_players'] ?? 2);
+        $minPlayers = app()->environment('local') ? 1 : (int) ($rulesSnapshot['min_players'] ?? 2);
 
         $players = $room->players()->get();
         if ($players->count() < $minPlayers) {
@@ -514,11 +541,14 @@ class RoomService
      */
     public function updateOrderedInput(string $code, string $playerId, string $roundId, array $frames): array
     {
-        return $this->mutateState($code, function (array &$state) use ($playerId, $frames): array {
+        return $this->mutateState($code, function (array &$state, array &$events) use ($playerId, $frames): array {
             if (! isset($state['players'][$playerId]) || ! OrderedInputBuffer::valid($frames)) {
                 return ['success' => false, 'error' => 'Entradas invalidas'];
             }
-            OrderedInputBuffer::merge($state, $playerId, $frames, (float) now()->format('U.u'));
+            $now = (float) now()->format('U.u');
+            OrderedInputBuffer::merge($state, $playerId, $frames, $now);
+            array_push($events, ...$this->engine->advanceMovement($state, $now));
+            $this->botService->processBots($state, $events, $now);
 
             return ['success' => true];
         }, $roundId);
@@ -690,9 +720,13 @@ class RoomService
     public function tickRoom(string $code, ?string $roundId = null, ?string $playerId = null): array
     {
         return $this->mutateState($code, function (array &$state, array &$events, array &$telemetry) use ($playerId) {
+            $now = (float) now()->format('U.u');
             if ($playerId !== null && ! empty($state['players'][$playerId]['alive'])) {
-                $state['players'][$playerId]['last_seen_at'] = (float) now()->format('U.u');
+                $state['players'][$playerId]['last_seen_at'] = $now;
             }
+
+            // Execute autonomous Bot AI
+            $this->botService->processBots($state, $events, $now);
 
             return [
                 'success' => true,

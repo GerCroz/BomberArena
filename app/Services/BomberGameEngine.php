@@ -328,6 +328,11 @@ class BomberGameEngine
         if (empty($state['is_game_over']) && ($state['rules']['eliminate_on_disconnect'] ?? false)) {
             $grace = ($state['rules']['reconnection_enabled'] ?? true) ? max(0, (int) ($state['rules']['reconnect_grace_seconds'] ?? 15)) : 0;
             foreach ($state['players'] as $id => &$player) {
+                if (str_starts_with($id, 'bot_')) {
+                    $player['last_seen_at'] = $time;
+
+                    continue;
+                }
                 if ($player['alive'] && isset($player['last_seen_at']) && $time - $player['last_seen_at'] > 1 + $grace) {
                     $player['alive'] = false;
                     $state['stats']['total_eliminations']++;
@@ -365,13 +370,17 @@ class BomberGameEngine
                 $credit = min(0.2 + $interval, ($state['input_credit'][$id] ?? 0) + max(0, min(0.2, $time - $creditAt)));
                 $state['input_credit_at'][$id] = $time;
                 foreach ($state['ordered_inputs'][$id] ?? [] as $sequence => $input) {
-                    if ($input['sampled_at'] > $cursor + 0.1 || $input['duration'] > $credit + 0.000001) {
+                    $maxSampledAhead = isset($input['action_id']) ? 1.5 : 0.5;
+                    if ($input['sampled_at'] > $cursor + $maxSampledAhead || $input['duration'] > $credit + 0.000001) {
                         break;
                     }
                     unset($state['ordered_inputs'][$id][$sequence]);
                     $state['input_ack'][$id] = $sequence;
                     $state['version']++;
-                    if ($time - $input['sampled_at'] > 0.5 || ! $state['players'][$id]['alive'] || ! empty($state['is_game_over'])) {
+                    $isStale = isset($input['action_id'])
+                        ? ($time - $input['sampled_at'] > 5.0)
+                        : ($time - $input['sampled_at'] > 0.5);
+                    if ($isStale || ! $state['players'][$id]['alive'] || ! empty($state['is_game_over'])) {
                         if (app()->environment('local')) {
                             $state['diagnostics']['discarded_stale_frames'] = ($state['diagnostics']['discarded_stale_frames'] ?? 0) + 1;
                         }
@@ -379,8 +388,15 @@ class BomberGameEngine
                         continue;
                     }
                     $credit -= $input['duration'];
-                    $state['players'][$id] = ClassicMovement::step($state, $state['players'][$id], $input['direction'], $input['duration']);
-                    $this->collectPowerup($state, $id);
+                    if (isset($input['to_x'], $input['to_y']) && $input['direction'] !== null) {
+                        $moveRes = $this->handleMove($state, $id, $input['direction']);
+                        if (! $moveRes['success'] && app()->environment('local')) {
+                            $state['diagnostics']['rejected_moves'] = ($state['diagnostics']['rejected_moves'] ?? 0) + 1;
+                        }
+                    } else {
+                        $state['players'][$id] = ClassicMovement::step($state, $state['players'][$id], $input['direction'], $input['duration']);
+                        $this->collectPowerup($state, $id);
+                    }
                     if (isset($input['action_id']) && ! isset($state['seen_actions'][$id][$input['action_id']])) {
                         $action = $input['action_id'];
                         if (count($state['seen_actions'][$id] ?? []) < 4096) {
@@ -492,10 +508,12 @@ class BomberGameEngine
             return ['success' => false, 'error' => 'Casilla bloqueada por obstáculo', 'pos' => ['x' => $player['x'], 'y' => $player['y']]];
         }
 
-        // Check bombs: cannot walk into a tile with an active bomb
+        // Check bombs: cannot walk into a tile with an active bomb unless allowed by pass-through
         foreach ($state['bombs'] as $bomb) {
             if ($bomb['x'] === $newX && $bomb['y'] === $newY) {
-                return ['success' => false, 'error' => 'Casilla bloqueada por bomba', 'pos' => ['x' => $player['x'], 'y' => $player['y']]];
+                if (! in_array($playerId, $bomb['pass_through_players'] ?? [], true)) {
+                    return ['success' => false, 'error' => 'Casilla bloqueada por bomba', 'pos' => ['x' => $player['x'], 'y' => $player['y']]];
+                }
             }
         }
 
@@ -512,6 +530,14 @@ class BomberGameEngine
         $player['position_y'] = (float) $newY;
         $player['direction'] = $direction;
         $state['version']++;
+
+        // Revoke pass-through permission for any bomb the player has stepped away from
+        foreach ($state['bombs'] as &$bomb) {
+            if (abs($player['x'] - $bomb['x']) >= 1 || abs($player['y'] - $bomb['y']) >= 1) {
+                $bomb['pass_through_players'] = array_values(array_diff($bomb['pass_through_players'] ?? [], [$playerId]));
+            }
+        }
+        unset($bomb);
 
         // Check power-up collection
         $puKey = "{$newX}_{$newY}";

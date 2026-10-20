@@ -59,7 +59,7 @@ class ArenaInputService
         }
         $now = (float) now()->format('U.u');
         $sampled = (float) $input['sampled_at'];
-        if ($sampled > $now + 0.1 || ($input['direction'] !== null && $now - $sampled > 0.5)) {
+        if ($sampled > $now + 2.0 || ($input['direction'] !== null && $now - $sampled > 3.0)) {
             return false;
         }
         $key = self::key($room, $round, $player);
