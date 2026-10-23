@@ -1205,10 +1205,16 @@
                     return;
                 }
 
-                // Fase 4: Barra espaciadora - registrar que comenzó la pulsación
+                // Barra espaciadora - Colocación inmediata al PRESIONAR la barra
                 if (e.code === 'Space' || e.key === ' ') {
                     e.preventDefault();
-                    spacePressed = true;
+                    if (!spacePressed) {
+                        spacePressed = true;
+                        if (!isCountingDown && gameState?.players?.[CURRENT_PLAYER_ID]?.alive) {
+                            haptics.bombPress();
+                            sendBomb();
+                        }
+                    }
                 }
             });
 
@@ -1228,13 +1234,10 @@
                     return;
                 }
 
-                // Fase 4: La bomba se coloca al SOLTAR la barra espaciadora, no al presionarla
+                // Barra espaciadora - Liberar pulsación
                 if (e.code === 'Space' || e.key === ' ') {
                     e.preventDefault();
-                    if (spacePressed) {
-                        spacePressed = false;
-                        sendBomb();
-                    }
+                    spacePressed = false;
                 }
             });
 
@@ -1491,7 +1494,7 @@
                 btn.addEventListener('contextmenu', e => e.preventDefault());
             });
 
-            // Bomb Button: Fase 5 & Fase 7 - La bomba se coloca al SOLTAR el botón
+            // Bomb Button: Colocación inmediata al presionar el botón táctil
             const bombBtn = document.getElementById('dpad-bomb');
             if (bombBtn) {
                 if (typeof PointerEvent !== 'undefined') {
@@ -1505,8 +1508,9 @@
                         try { bombBtn.setPointerCapture(e.pointerId); } catch (_) {}
                         bombBtn.classList.add('is-active');
 
-                        // Fase 6: Pulsación del botón de bomba: 15 ms (NO coloca bomba aquí)
+                        // Pulsación del botón de bomba: Colocación inmediata al presionar
                         haptics.bombPress();
+                        sendBomb();
                     });
 
                     bombBtn.addEventListener('pointerup', (e) => {
@@ -1514,19 +1518,13 @@
                         e.stopPropagation();
                         bombBtn.classList.remove('is-active');
                         try { bombBtn.releasePointerCapture(e.pointerId); } catch (_) {}
-
-                        if (touchBombPressed && touchBombPointerId === e.pointerId) {
-                            touchBombPressed = false;
-                            touchBombPointerId = null;
-                            // Colocación al soltar el botón táctil
-                            sendBomb();
-                        }
+                        touchBombPressed = false;
+                        touchBombPointerId = null;
                     });
 
                     const cancelBombTouch = (e) => {
                         bombBtn.classList.remove('is-active');
                         try { bombBtn.releasePointerCapture(e.pointerId); } catch (_) {}
-                        // Si el gesto se cancela, NO colocar la bomba
                         touchBombPressed = false;
                         touchBombPointerId = null;
                     };
@@ -1542,15 +1540,13 @@
                         touchBombPressed = true;
                         bombBtn.classList.add('is-active');
                         haptics.bombPress();
+                        sendBomb();
                     }, { passive: false });
 
                     bombBtn.addEventListener('touchend', (e) => {
                         e.preventDefault();
                         bombBtn.classList.remove('is-active');
-                        if (touchBombPressed) {
-                            touchBombPressed = false;
-                            sendBomb();
-                        }
+                        touchBombPressed = false;
                     }, { passive: false });
 
                     bombBtn.addEventListener('touchcancel', (e) => {
@@ -1585,9 +1581,12 @@
 
             // Fallback: Direct authoritative HTTP bomb endpoint
             try {
+                const curX = classicController ? Math.round(classicController.player?.x ?? me.x) : Math.round(me.x);
+                const curY = classicController ? Math.round(classicController.player?.y ?? me.y) : Math.round(me.y);
                 fetch(`/api/rooms/${ROOM_CODE}/bomb`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN }
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
+                    body: JSON.stringify({ x: curX, y: curY })
                 }).then(res => res.json()).then(data => {
                     if (data.success && data.bomb) {
                         if (sfx) sfx.playBombDrop();
@@ -1734,6 +1733,7 @@
         let tickRequestController = null;
 
         function stopRound() {
+            if (window.stopTacticalAutoPilot) window.stopTacticalAutoPilot();
             if (classicController) classicController.clear();
             for (const request of inputRequests.values()) request.abort();
             inputRequests.clear();
@@ -1882,6 +1882,231 @@
             div.innerText = text;
             return div.innerHTML;
         }
+
+        // Autonomous Tactical Pilot for live testing, movement verification, and active combat
+        let autoPilotTimer = null;
+        window.startTacticalAutoPilot = function() {
+            if (autoPilotTimer) clearInterval(autoPilotTimer);
+            console.log('[AutoPilot] Started tactical gamer pilot with active step dispatch');
+
+            autoPilotTimer = setInterval(() => {
+                if (!gameState || currentRoom.status !== 'playing' || isCountingDown) return;
+                const me = gameState.players?.[CURRENT_PLAYER_ID];
+                if (!me || !me.alive) return;
+                if (classicController && classicController.isStepping) return;
+
+                const grid = gameState.grid || [];
+                const cols = 13, rows = 11;
+                const px = Math.round(me.x);
+                const py = Math.round(me.y);
+
+                const dirs = [
+                    { dir: 'up', dx: 0, dy: -1 },
+                    { dir: 'down', dx: 0, dy: 1 },
+                    { dir: 'left', dx: -1, dy: 0 },
+                    { dir: 'right', dx: 1, dy: 0 }
+                ];
+
+                // Compute danger tiles for existing bombs + explosions
+                const danger = new Set();
+                (gameState.explosions || []).forEach(exp => {
+                    (exp.affected_tiles || []).forEach(t => danger.add(`${t.x}_${t.y}`));
+                });
+
+                Object.values(gameState.bombs || {}).forEach(b => {
+                    const bx = Math.round(b.x), by = Math.round(b.y);
+                    const range = b.range || 2;
+                    danger.add(`${bx}_${by}`);
+                    dirs.forEach(d => {
+                        for (let s = 1; s <= range; s++) {
+                            const nx = bx + d.dx * s, ny = by + d.dy * s;
+                            if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) break;
+                            const tile = grid[ny]?.[nx];
+                            if (tile === 1) break; // indestructible wall stops blast
+                            danger.add(`${nx}_${ny}`);
+                            if (tile === 2) break; // block absorbs blast
+                        }
+                    });
+                });
+
+                const isWalkable = (x, y) => {
+                    if (x < 0 || x >= cols || y < 0 || y >= rows) return false;
+                    const tile = grid[y]?.[x];
+                    if (tile === 1 || tile === 2) return false;
+                    for (const b of Object.values(gameState.bombs || {})) {
+                        if (Math.round(b.x) === x && Math.round(b.y) === y) return false;
+                    }
+                    return true;
+                };
+
+                const doStep = (dir) => {
+                    const keyId = 'tact_' + dir;
+                    const logicalDir = gameRenderer ? gameRenderer.screenToLogicalDir(dir) : dir;
+                    if (classicController && classicController.press(keyId, logicalDir)) {
+                        haptics.directionPress();
+                        sendCurrentInput(true);
+                        setTimeout(() => classicController?.release(keyId), 40);
+                        return true;
+                    }
+                    return false;
+                };
+
+                // 1. IF CURRENT TILE IS IN DANGER: ESCAPE VIA BFS IMMEDIATELY!
+                if (danger.has(`${px}_${py}`)) {
+                    const queue = [[px, py, []]];
+                    const visited = new Set([`${px}_${py}`]);
+                    let escapePath = null;
+
+                    while (queue.length > 0) {
+                        const [cx, cy, path] = queue.shift();
+                        if (!danger.has(`${cx}_${cy}`)) {
+                            escapePath = path;
+                            break;
+                        }
+                        if (path.length >= 6) continue;
+
+                        for (const d of dirs) {
+                            const nx = cx + d.dx, ny = cy + d.dy;
+                            const key = `${nx}_${ny}`;
+                            if (isWalkable(nx, ny) && !visited.has(key)) {
+                                visited.add(key);
+                                queue.push([nx, ny, [...path, d.dir]]);
+                            }
+                        }
+                    }
+
+                    if (escapePath && escapePath.length > 0) {
+                        doStep(escapePath[0]);
+                        return;
+                    }
+
+                    for (const d of dirs) {
+                        if (isWalkable(px + d.dx, py + d.dy)) {
+                            doStep(d.dir);
+                            return;
+                        }
+                    }
+                    return;
+                }
+
+                // 2. IF CURRENT TILE IS SAFE: CHECK IF WE SHOULD PLACE A BOMB
+                let nearestBot = null;
+                let minDist = 999;
+                Object.values(gameState.players || {}).forEach(p => {
+                    if (p.id !== CURRENT_PLAYER_ID && p.alive) {
+                        const dist = Math.hypot(p.x - px, p.y - py);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            nearestBot = p;
+                        }
+                    }
+                });
+
+                let adjacentTarget = false;
+                for (const d of dirs) {
+                    const nx = px + d.dx, ny = py + d.dy;
+                    if (grid[ny]?.[nx] === 2 || (nearestBot && Math.round(nearestBot.x) === nx && Math.round(nearestBot.y) === ny)) {
+                        adjacentTarget = true;
+                        break;
+                    }
+                }
+
+                const myActiveBombs = Object.values(gameState.bombs || {}).filter(b => b.owner_id === CURRENT_PLAYER_ID).length;
+                const maxBombs = me.max_bombs || 1;
+
+                if (adjacentTarget && myActiveBombs < maxBombs) {
+                    const hypotheticalDanger = new Set(danger);
+                    const range = me.bomb_range || 2;
+                    hypotheticalDanger.add(`${px}_${py}`);
+                    dirs.forEach(d => {
+                        for (let s = 1; s <= range; s++) {
+                            const nx = px + d.dx * s, ny = py + d.dy * s;
+                            if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) break;
+                            const tile = grid[ny]?.[nx];
+                            if (tile === 1) break;
+                            hypotheticalDanger.add(`${nx}_${ny}`);
+                            if (tile === 2) break;
+                        }
+                    });
+
+                    const queue = [[px, py, []]];
+                    const visited = new Set([`${px}_${py}`]);
+                    let escapePath = null;
+
+                    while (queue.length > 0) {
+                        const [cx, cy, path] = queue.shift();
+                        if (!hypotheticalDanger.has(`${cx}_${cy}`)) {
+                            escapePath = path;
+                            break;
+                        }
+                        if (path.length >= 5) continue;
+
+                        for (const d of dirs) {
+                            const nx = cx + d.dx, ny = cy + d.dy;
+                            const key = `${nx}_${ny}`;
+                            if (isWalkable(nx, ny) && !visited.has(key)) {
+                                visited.add(key);
+                                queue.push([nx, ny, [...path, d.dir]]);
+                            }
+                        }
+                    }
+
+                    if (escapePath && escapePath.length > 0) {
+                        haptics.bombPress();
+                        sendBomb();
+                        doStep(escapePath[0]);
+                        return;
+                    }
+                }
+
+                // 3. ADVANCE TOWARDS TARGET ALONG SAFE TILES
+                let targetX = nearestBot ? Math.round(nearestBot.x) : 6;
+                let targetY = nearestBot ? Math.round(nearestBot.y) : 5;
+
+                const queue = [[px, py, []]];
+                const visited = new Set([`${px}_${py}`]);
+                let bestPath = null;
+
+                while (queue.length > 0) {
+                    const [cx, cy, path] = queue.shift();
+                    if (path.length > 0 && Math.hypot(cx - targetX, cy - targetY) <= 1) {
+                        bestPath = path;
+                        break;
+                    }
+                    if (path.length >= 10) continue;
+
+                    for (const d of dirs) {
+                        const nx = cx + d.dx, ny = cy + d.dy;
+                        const key = `${nx}_${ny}`;
+                        if (isWalkable(nx, ny) && !danger.has(key) && !visited.has(key)) {
+                            visited.add(key);
+                            queue.push([nx, ny, [...path, d.dir]]);
+                        }
+                    }
+                }
+
+                if (bestPath && bestPath.length > 0) {
+                    doStep(bestPath[0]);
+                    return;
+                }
+
+                for (const d of dirs) {
+                    const nx = px + d.dx, ny = py + d.dy;
+                    if (isWalkable(nx, ny) && !danger.has(`${nx}_${ny}`)) {
+                        doStep(d.dir);
+                        return;
+                    }
+                }
+            }, 180);
+        };
+
+        window.stopTacticalAutoPilot = function() {
+            if (autoPilotTimer) {
+                clearInterval(autoPilotTimer);
+                autoPilotTimer = null;
+                console.log('[AutoPilot] Stopped');
+            }
+        };
     </script>
 </body>
 </html>

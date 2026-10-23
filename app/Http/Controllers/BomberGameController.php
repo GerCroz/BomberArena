@@ -193,7 +193,14 @@ class BomberGameController extends Controller
     public function bomb(Request $request, string $code): JsonResponse
     {
         $playerId = $this->identity->getOrCreatePlayerId($request);
-        $result = $this->roomService->placeBomb($code, $playerId);
+        $x = $request->input('x');
+        $y = $request->input('y');
+        $result = $this->roomService->placeBomb(
+            $code,
+            $playerId,
+            is_numeric($x) ? (int) $x : null,
+            is_numeric($y) ? (int) $y : null
+        );
 
         return response()->json($result, $result['success'] ? 200 : 422);
     }

@@ -370,7 +370,7 @@ class BomberGameEngine
                 $credit = min(0.2 + $interval, ($state['input_credit'][$id] ?? 0) + max(0, min(0.2, $time - $creditAt)));
                 $state['input_credit_at'][$id] = $time;
                 foreach ($state['ordered_inputs'][$id] ?? [] as $sequence => $input) {
-                    $maxSampledAhead = isset($input['action_id']) ? 1.5 : 0.5;
+                    $maxSampledAhead = 2.0;
                     if ($input['sampled_at'] > $cursor + $maxSampledAhead || $input['duration'] > $credit + 0.000001) {
                         break;
                     }
@@ -379,7 +379,7 @@ class BomberGameEngine
                     $state['version']++;
                     $isStale = isset($input['action_id'])
                         ? ($time - $input['sampled_at'] > 5.0)
-                        : ($time - $input['sampled_at'] > 0.5);
+                        : ($time - $input['sampled_at'] > 1.2);
                     if ($isStale || ! $state['players'][$id]['alive'] || ! empty($state['is_game_over'])) {
                         if (app()->environment('local')) {
                             $state['diagnostics']['discarded_stale_frames'] = ($state['diagnostics']['discarded_stale_frames'] ?? 0) + 1;
@@ -401,7 +401,7 @@ class BomberGameEngine
                         $action = $input['action_id'];
                         if (count($state['seen_actions'][$id] ?? []) < 4096) {
                             $state['seen_actions'][$id][$action] = true;
-                            $result = $this->handlePlaceBomb($state, $id, $cursor);
+                            $result = $this->handlePlaceBomb($state, $id, $cursor, $input['to_x'] ?? null, $input['to_y'] ?? null);
                         } else {
                             $result = ['success' => false, 'error' => 'Limite de acciones de ronda'];
                         }
@@ -567,7 +567,7 @@ class BomberGameEngine
     /**
      * Plant a bomb by player with parameterized fuse duration.
      */
-    public function handlePlaceBomb(array &$state, string $playerId, ?float $processedAt = null): array
+    public function handlePlaceBomb(array &$state, string $playerId, ?float $processedAt = null, ?int $atX = null, ?int $atY = null): array
     {
         if (! empty($state['is_game_over'])) {
             return ['success' => false, 'error' => 'Partida finalizada'];
@@ -596,6 +596,19 @@ class BomberGameEngine
         $bx = $player['x'];
         $by = $player['y'];
 
+        // If client specified the intended tile for the bomb and it's within reach (same or adjacent step)
+        if ($atX !== null && $atY !== null && $atX >= 0 && $atX < 13 && $atY >= 0 && $atY < 11) {
+            $tile = $state['grid'][$atY][$atX] ?? self::TILE_WALL;
+            if ($tile === self::TILE_EMPTY && (abs($atX - $bx) <= 1 && abs($atY - $by) <= 1)) {
+                $bx = $atX;
+                $by = $atY;
+                $player['x'] = $bx;
+                $player['y'] = $by;
+                $player['position_x'] = (float) $bx;
+                $player['position_y'] = (float) $by;
+            }
+        }
+
         // Cannot plant if another bomb already exists here
         foreach ($state['bombs'] as $b) {
             if ($b['x'] === $bx && $b['y'] === $by) {
@@ -611,9 +624,11 @@ class BomberGameEngine
         $plantedAt = $processedAt ?? (float) now()->format('U.u');
         $explodesAt = $plantedAt + $fuseSeconds;
 
+        $passThrough = array_values(array_unique(array_merge([$playerId], array_keys(array_filter($state['players'], fn (array $p): bool => $p['alive'] && abs(($p['position_x'] ?? $p['x']) - $bx) < 0.78 && abs(($p['position_y'] ?? $p['y']) - $by) < 0.78)))));
+
         $bomb = [
             'id' => $bombId,
-            'pass_through_players' => array_keys(array_filter($state['players'], fn (array $p): bool => $p['alive'] && abs(($p['position_x'] ?? $p['x']) - $bx) < 0.78 && abs(($p['position_y'] ?? $p['y']) - $by) < 0.78)),
+            'pass_through_players' => $passThrough,
             'x' => $bx,
             'y' => $by,
             'owner_id' => $playerId,

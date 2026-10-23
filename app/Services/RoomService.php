@@ -634,7 +634,7 @@ class RoomService
                         $state['version']++;
                     }
                 } elseif ($type === 'bomb') {
-                    $res = $this->engine->handlePlaceBomb($state, $playerId);
+                    $res = $this->engine->handlePlaceBomb($state, $playerId, null, $action['x'] ?? null, $action['y'] ?? null);
                     if ($res['success']) {
                         $bombData = $res['bomb'];
                         if (! empty($action['temp_id'])) {
@@ -676,9 +676,14 @@ class RoomService
         return $result;
     }
 
-    public function placeBomb(string $code, string $playerId): array
+    public function placeBomb(string $code, string $playerId, ?int $x = null, ?int $y = null): array
     {
-        $result = $this->handleActions($code, $playerId, [['type' => 'bomb']]);
+        $action = ['type' => 'bomb'];
+        if ($x !== null && $y !== null) {
+            $action['x'] = $x;
+            $action['y'] = $y;
+        }
+        $result = $this->handleActions($code, $playerId, [$action]);
         if (($result['success'] ?? false) && empty($result['bombs'])) {
             return ['success' => false, 'error' => 'No se pudo colocar la bomba'];
         }
